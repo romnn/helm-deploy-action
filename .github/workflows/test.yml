@@ -29,6 +29,14 @@ jobs:
         with:
           minikube version: "v1.16.0"
           kubernetes version: "v1.19.2"
+
+      - name: Extract minikube kubeconfig
+        id: minikube
+        run: |
+          export KUBECONFIG_FILE=$(cat $HOME/.kube/config)
+          echo $KUBECONFIG_FILE
+          echo "::set-output name=config::${KUBECONFIG_FILE}"
+
       - name: Deploy drone
         uses: ./
         with:
@@ -36,6 +44,9 @@ jobs:
           chart: stable/drone
           repo: 'https://charts.helm.sh/stable'
           repo-alias: stable
+        env:
+          KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
+
       - name: Deploy couchdb
         uses: ./
         with:
@@ -43,6 +54,9 @@ jobs:
           chart: stable/drone
           repo: 'https://charts.helm.sh/stable'
           repo-alias: 'stable'
+        env:
+          KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
+
       - name: Create default2 namespace
         run: kubectl create namespace default2
       - name: Deploy envoy
@@ -53,14 +67,23 @@ jobs:
           repo: 'https://charts.helm.sh/stable'
           repo-alias: stable
           namespace: default2
+        env:
+          KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
+
       - name: Remove drone deployment
         uses: ./
         with:
           command: remove
           release: drone-release
+        env:
+          KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
+
+
       - name: Remove envoy deployment
         uses: ./
         with:
           command: remove
           release: envoy-release
           namespace: default2
+        env:
+          KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
