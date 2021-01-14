@@ -29,6 +29,38 @@ jobs:
         with:
           minikube version: "v1.16.0"
           kubernetes version: "v1.19.2"
-      - uses: ./
+      - name: Deploy drone
+        uses: ./
         with:
-          milliseconds: 1000
+          release: drone-release
+          chart: stable/drone
+          repo: 'https://charts.helm.sh/stable'
+          repo-alias: stable
+      - name: Deploy couchdb
+        uses: ./
+        with:
+          release: drone-release
+          chart: stable/drone
+          repo: 'https://charts.helm.sh/stable'
+          repo-alias: 'stable'
+      - name: Create default2 namespace
+        run: kubectl create namespace default2
+      - name: Deploy envoy
+        uses: ./
+        with:
+          release: envoy-release
+          chart: stable/envoy
+          repo: 'https://charts.helm.sh/stable'
+          repo-alias: stable
+          namespace: default2
+      - name: Remove drone deployment
+        uses: ./
+        with:
+          command: remove
+          release: drone-release
+      - name: Remove envoy deployment
+        uses: ./
+        with:
+          command: remove
+          release: envoy-release
+          namespace: default2
