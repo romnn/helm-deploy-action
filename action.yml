@@ -34,7 +34,6 @@ inputs:
   values:
     description: helm chart values as YAML or JSON
     required: false
-    default: {}
   command:
     description: helm command to be performed (upgrade, install, remove)
     required: false
