@@ -158,7 +158,7 @@ export interface HelmDeployConfig {
  * Execute a helm command
  */
 async function helmExec(args: string[]): Promise<void> {
-  await exec.exec('helm', args, {ignoreReturnCode: true})
+  await exec.exec('helm', args, {ignoreReturnCode: false})
 }
 
 /**
