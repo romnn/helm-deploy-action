@@ -5,47 +5,32 @@ branding:
   icon: upload-cloud
   color: gray-dark
 inputs:
+  command:
+    description: helm command to be performed (upgrade, install, remove)
+    required: true
+    
+  # all
+  timeout:
+    description: timeout for the helm command, e.g. 5m0s
+    required: false
+
+  # remove and upgrade
   release:
     description: helm release name
     required: true
-  chart:
-    description: helm chart path
-    # when using the remove command, the chart input is not required
-    required: false
-  version:
-    description: Version of the chart
-    required: false
   namespace:
     description: k8s namespace
     required: false
     default: default
-  repo:
-    description: helm repo url where the chart is stored
-    required: false
-  repo-alias:
-    description: helm repo alias name to use 
-    required: false
-  repo-username:
-    description: helm repo username
-    required: false
-  repo-password:
-    description: helm repo password
-    required: false
+
+  # upgrade
   values:
     description: helm chart values as YAML or JSON
     required: false
-  command:
-    description: helm command to be performed (upgrade, install, remove)
-    required: false
-    default: upgrade
   dry-run:
     description: run helm in dry-run mode without an actual deployment
     required: false
     default: false
-  timeout:
-    description: timeout for the helm command, e.g. 5m0s
-    required: false
-    default: "5m0s"
   atomic:
     description: if true, an upgrade process rolls back changes made in case of failed upgrade
     required: false
@@ -59,6 +44,42 @@ inputs:
   secrets:
     description: secret variables to include in value file interpolation as JSON encoded map
     required: false
+
+  # upgrade and push
+  chart:
+    description: helm chart path
+    required: false
+  chart-version:
+    description: version of the chart
+    required: false
+  repo:
+    description: helm repo url where the chart is stored
+    required: false
+  repo-alias:
+    description: helm repo alias name to use 
+    required: false
+  repo-username:
+    description: helm repo username
+    required: false
+  repo-password:
+    description: helm repo password
+    required: false
+  dependencies:
+    description: helm chart dependencies as YAML or JSON
+    required: false
+
+  # push
+  app-version:
+    description: version of the app
+    required: false
+  chart-dir:
+    description: helm chart path
+    required: false
+  force:
+    description: force overrides charts with the same version
+    required: false
+    default: false
+
 runs:
   using: docker
   image: docker://romnn/helm-deploy-action:latest

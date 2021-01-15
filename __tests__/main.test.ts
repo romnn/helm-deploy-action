@@ -17,9 +17,11 @@ const command = 'command'
 const namespace = 'namespace'
 const release = 'release'
 const chart = 'chart'
+const chartDir = 'chart-dir'
 const atomic = 'atomic'
 const dryRun = 'dry-run'
-const version = 'version'
+const chartVersion = 'chart-version'
+const appVersion = 'app-version'
 const repo = 'repo'
 const repoAlias = 'repo-alias'
 const repoUsername = 'repo-username'
@@ -27,7 +29,9 @@ const repoPassword = 'repo-password'
 const values = 'values'
 const valueFiles = 'value-files'
 const secrets = 'secrets'
+const dependencies = 'dependencies'
 const helmTimeout = 'timeout'
+const force = 'force'
 
 test('test_valid_remove', async () => {
   const conf = {
@@ -53,6 +57,7 @@ test('test_invalid_remove_missing_release', async () => {
 
 test('test_valid_upgrade_chart', async () => {
   const conf = {
+    [command]: 'upgrade',
     [release]: 'my-linkerd',
     [chart]: 'stable/linkerd'
   }
@@ -77,12 +82,13 @@ test('test_valid_upgrade_chart', async () => {
 
 test('test_valid_upgrade_chart_with_options', async () => {
   const conf = {
+    [command]: 'upgrade',
     [release]: 'my-linkerd',
     [chart]: 'stable/linkerd',
     [helmTimeout]: '1m30s',
     [atomic]: 'true',
     [dryRun]: 'true',
-    [version]: '3.1.1',
+    [chartVersion]: '3.1.1',
     [values]: '{"test": "123"}',
     [valueFiles]: '["./file1.yml", "./file2.yml"]'
   }
@@ -115,14 +121,72 @@ test('test_valid_upgrade_chart_with_options', async () => {
   })
 })
 
+test('test_valid_push_chart_with_single_dependency', async () => {
+  const conf = {
+    [command]: 'push',
+    [helmTimeout]: '1m30s',
+    [force]: 'true',
+    [chart]: 'linkerd',
+    [chartDir]: './charts',
+    [chartVersion]: '3.1.1',
+    [appVersion]: 'v3.1.1alpha',
+    [repo]: 'https://charts.bitnami.com/bitnami',
+    [repoAlias]: 'bitnami',
+    [repoUsername]: 'admin',
+    [repoPassword]: '123456',
+    [dependencies]: JSON.stringify([
+      {
+        repository: 'https://charts.bitnami.com/bitnami',
+        alias: 'bitnami'
+      }
+    ])
+  }
+  const expected = [
+    [
+      'helm',
+      'repo',
+      'add',
+      'bitnami',
+      'https://charts.bitnami.com/bitnami',
+      '--username=admin',
+      '--password=123456'
+    ],
+    ['helm', 'repo', 'update'],
+    // dependency repos
+    ['helm', 'repo', 'add', 'bitnami', 'https://charts.bitnami.com/bitnami'],
+    ['helm', 'repo', 'update'],
+    // inspect
+    ['helm', 'inspect', 'chart'],
+    // package
+    ['helm', 'package', '--version=3.1.1', '--app-version=v3.1.1alpha'],
+    // update
+    ['helm', 'dependency', 'update'],
+    // push
+    [
+      'helm',
+      'push',
+      'linkerd-*',
+      'https://charts.bitnami.com/bitnami',
+      '--username=admin',
+      '--password=123456',
+      '--force'
+    ]
+  ]
+  await withMockedExec(conf, {}, async mock => {
+    await run()
+    expect(args(mock.mock.calls)).toEqual(expected)
+  })
+})
+
 test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
   const conf = {
+    [command]: 'upgrade',
     [release]: 'my-mongodb',
     [chart]: 'bitnami/mongodb',
     [helmTimeout]: '1m30s',
     [atomic]: 'true',
     [dryRun]: 'true',
-    [version]: '3.1.1',
+    [chartVersion]: '3.1.1',
     [repo]: 'https://charts.bitnami.com/bitnami',
     [repoAlias]: 'bitnami',
     [values]: '{"test": "123"}',
@@ -161,12 +225,13 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
 
 test('test_valid_upgrade_chart_with_options_external_private_repo', async () => {
   const conf = {
+    [command]: 'upgrade',
     [release]: 'my-mongodb',
     [chart]: 'bitnami/mongodb',
     [helmTimeout]: '1m30s',
     [atomic]: 'true',
     [dryRun]: 'true',
-    [version]: '3.1.1',
+    [chartVersion]: '3.1.1',
     [repo]: 'https://charts.bitnami.com/bitnami',
     [repoAlias]: 'bitnami',
     [repoUsername]: 'admin',
@@ -215,6 +280,7 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
 
 test('test_invalid_upgrade_chart_missing_chart', async () => {
   const conf = {
+    [command]: 'upgrade',
     [release]: 'my-linkerd',
     [chart]: 'bitnami/linkerd',
     [repo]: 'https://charts.bitnami.com/bitnami',
@@ -231,6 +297,7 @@ test('test_invalid_upgrade_chart_missing_chart', async () => {
 
 test('test_invalid_upgrade_chart_missing_chart', async () => {
   const conf = {
+    [command]: 'upgrade',
     [release]: 'my-linkerd'
     // missing the chart to upgrade
   }
@@ -241,10 +308,22 @@ test('test_invalid_upgrade_chart_missing_chart', async () => {
 
 test('test_invalid_upgrade_chart_missing_release', async () => {
   const conf = {
+    [command]: 'upgrade',
     [chart]: 'stable/linkerd'
     // missing the release to upgrade
   }
   await withMockedExec(conf, {}, async mock => {
     expect(run()).rejects.toThrow('not supplied: release')
+  })
+})
+
+test('test_invalid_upgrade_chart_missing_command', async () => {
+  const conf = {
+    // missing the command to perform
+    [release]: 'my-linkerd',
+    [chart]: 'stable/linkerd'
+  }
+  await withMockedExec(conf, {}, async mock => {
+    expect(run()).rejects.toThrow('not supplied: command')
   })
 })

@@ -16,8 +16,9 @@ jobs:
     - uses: actions/checkout@v1
 
     - name: 'Deploy'
-      uses: 'romnnn/helm-deploy-action@v1'
+      uses: 'romnnn/helm-deploy-action@master'
       with:
+        command: 'upgrade'
         release: 'my-release'
         chart: 'nginx-stable/nginx-ingress'
         repo: 'https://helm.nginx.com/stable'
