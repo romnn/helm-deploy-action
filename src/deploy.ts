@@ -169,7 +169,6 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
   await status('pending')
 
   // set sensible defaults
-  conf.atomic = conf.atomic || true
   if (!conf.command) conf.command = 'upgrade'
   if (!conf.namespace) conf.namespace = 'default'
   if (!conf.repoAlias) conf.repoAlias = 'source-chart-repo'

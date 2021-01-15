@@ -66,7 +66,6 @@ test('test_valid_upgrade_chart', async () => {
       'stable/linkerd',
       '--install',
       '--wait',
-      '--atomic',
       '--values=./values.yml'
     ]
   ]
