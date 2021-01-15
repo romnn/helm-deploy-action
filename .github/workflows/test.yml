@@ -11,7 +11,7 @@ jobs:
 
   integration-tests:
     runs-on: ubuntu-latest
-    if: {{ false }} # disabled for now
+    if: ${{ false }} # disabled for now
     steps:
       - uses: actions/checkout@v2
       - name: Setup Minikube
