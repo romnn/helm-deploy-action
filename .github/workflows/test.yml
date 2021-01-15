@@ -2,25 +2,14 @@ name: test
 on: [push]
 
 jobs:
-  build:
+  unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - run: npm install
       - run: npm run all
 
-  container:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: build docker container
-        run: docker build -t action .
-
-      - name: test helm version
-        run: docker run --rm -i --entrypoint=helm action version -c
-
-  integration-test:
+  integration-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
