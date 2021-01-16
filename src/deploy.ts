@@ -6,6 +6,7 @@ import * as path from 'path'
 import * as glob from 'glob'
 import * as util from 'util'
 import * as Mustache from 'mustache'
+import {chmodR} from './utils'
 
 const asyncGlob = util.promisify(glob.glob)
 
@@ -317,28 +318,31 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   if (!conf.repoPassword)
     throw new Error('required and not supplied: repo-password')
 
-  const cwd = await fs.promises.realpath(
+  const chartPath = await fs.promises.realpath(
     path.join(conf.chartDir ?? '.', conf.chart)
   )
-  await helmExec(['inspect', 'chart', cwd])
+  await helmExec(['inspect', 'chart', chartPath])
 
-  await helmExec(['dependency', 'update', cwd])
+  await helmExec(['dependency', 'update', chartPath])
 
   let args = []
   if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
   if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`)
-  await helmExec(['package', cwd, ...args], {cwd})
+  await helmExec(['package', chartPath, ...args], {cwd: chartPath})
 
   args = []
   args.push(`--username=${conf.repoUsername}`)
   args.push(`--password=${conf.repoPassword}`)
   if (conf.force) args.push('--force')
-  const packaged = await asyncGlob(`${cwd}/${conf.chart}-*.tgz`)
+  const packaged = await asyncGlob(`${chartPath}/${conf.chart}-*.tgz`)
   if (packaged.length < 1)
     throw new Error(
       'Could not find packaged chart to upload. This might be an internal error.'
     )
   for (const p of packaged) await helmExec(['push', p, conf.repo, ...args])
+  // Fix: the container uses root and we need to namually set the chart directory permissions
+  // to something that the following actions can still read and write
+  await chmodR(chartPath, 0o777)
 }
 
 /**

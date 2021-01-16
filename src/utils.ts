@@ -3,6 +3,7 @@ import * as core from '@actions/core'
 import * as exec from '@actions/exec'
 import * as path from 'path'
 import * as cp from 'child_process'
+import chmodr from 'chmodr'
 
 interface Dict<T> {
   [key: string]: T
@@ -53,6 +54,20 @@ async function mkdirs(dir: string): Promise<void> {
     }
     i++
   }
+}
+
+export async function chmodR(dir: string, mode: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    chmodr(dir, mode, err => {
+      if (err) {
+        reject(
+          new Error(`failed to set permissions for ${path}: ${err.message}`)
+        )
+      } else {
+        resolve()
+      }
+    })
+  })
 }
 
 export async function withMockedExec(
