@@ -3,7 +3,11 @@ import * as github from '@actions/github'
 import * as exec from '@actions/exec'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as glob from 'glob'
+import * as util from 'util'
 import * as Mustache from 'mustache'
+
+const asyncGlob = util.promisify(glob.glob)
 
 function parseValues(values: object | string | null | undefined): string {
   if (!values) {
@@ -313,7 +317,9 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   if (!conf.repoPassword)
     throw new Error('required and not supplied: repo-password')
 
-  const cwd = path.join(conf.chartDir ?? '.', conf.chart)
+  const cwd = await fs.promises.realpath(
+    path.join(conf.chartDir ?? '.', conf.chart)
+  )
   await helmExec(['inspect', 'chart', cwd])
 
   let args = []
@@ -327,7 +333,8 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   args.push(`--username=${conf.repoUsername}`)
   args.push(`--password=${conf.repoPassword}`)
   if (conf.force) args.push('--force')
-  await helmExec(['push', `${conf.chart}-*`, conf.repo, ...args])
+  const packaged = await asyncGlob(`${cwd}/${conf.chart}-*.tgz`)
+  for (const p of packaged) await helmExec(['push', p, conf.repo, ...args])
 }
 
 /**

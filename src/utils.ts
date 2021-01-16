@@ -30,7 +30,7 @@ export function reduceNested(
     if (typeof val === 'string') {
       ans[key] = val
     } else {
-      const flattened = reduceNested(val)
+      const flattened = reduceNested(val, separator)
       for (const key2 in flattened) {
         ans[key + separator + key2] = flattened[key2]
       }
@@ -39,21 +39,40 @@ export function reduceNested(
   return ans
 }
 
+async function mkdirs(dir: string): Promise<void> {
+  const sep = '/'
+  const segments = dir.split(sep)
+  let current = ''
+  let i = 0
+  while (i < segments.length) {
+    current = current + sep + segments[i]
+    try {
+      await fs.promises.stat(current)
+    } catch {
+      await fs.promises.mkdir(current)
+    }
+    i++
+  }
+}
+
 export async function withMockedExec(
   conf: Dict<string>,
   files: DirectoryItems,
   callback: (mock: MockExec) => Promise<void>
 ): Promise<void> {
-  try {
-    // TODO: for now, we resolve paths to nested files but do not yet create the dirs for them
-    await fs.promises.mkdir('/tmp')
-  } catch (err) {
-    if (err.code !== 'EEXIST') throw err
-  }
-  const reducedFiles = reduceNested({tmp: files}, '/')
+  await mkdirs('/tmp')
+  const reducedFiles = Object.entries(reduceNested(files, '/')).reduce(
+    (acc, item) => {
+      acc[`/${item[0]}`] = item[1]
+      return acc
+    },
+    {} as Dict<string>
+  )
   for (const file in reducedFiles) {
     const content = reducedFiles[file]
-    await fs.promises.writeFile(`/${file}`, content)
+    const dir = path.dirname(file)
+    await mkdirs(dir)
+    await fs.promises.writeFile(file, content)
   }
   try {
     const mockGetInput = jest.spyOn(core, 'getInput')
@@ -73,7 +92,7 @@ export async function withMockedExec(
   } catch (err) {
     // cleanup the files
     for (const file in reducedFiles) {
-      await fs.promises.unlink(`/${file}`)
+      await fs.promises.unlink(file)
     }
     throw err
   }

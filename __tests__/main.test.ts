@@ -90,7 +90,7 @@ test('test_valid_upgrade_chart_with_options', async () => {
     [dryRun]: 'true',
     [chartVersion]: '3.1.1',
     [values]: '{"test": "123"}',
-    [valueFiles]: '["./file1.yml", "./file2.yml"]'
+    [valueFiles]: '["/tmp/file1.yml", "/tmp/file2.yml"]'
   }
   const expected = [
     [
@@ -106,14 +106,16 @@ test('test_valid_upgrade_chart_with_options', async () => {
       '--version=3.1.1',
       '--timeout=1m30s',
       '--atomic',
-      '--values=./file1.yml',
-      '--values=./file2.yml',
+      '--values=/tmp/file1.yml',
+      '--values=/tmp/file2.yml',
       '--values=./values.yml'
     ]
   ]
   const files = {
-    'file1.yml': 'test: file1',
-    'file2.yml': 'test: file2'
+    tmp: {
+      'file1.yml': 'test: file1',
+      'file2.yml': 'test: file2'
+    }
   }
   await withMockedExec(conf, files, async mock => {
     await run()
@@ -156,29 +158,41 @@ test('test_valid_push_chart_with_single_dependency', async () => {
     ['helm', 'repo', 'add', 'bitnami', 'https://charts.bitnami.com/bitnami'],
     ['helm', 'repo', 'update'],
     // inspect
-    ['helm', 'inspect', 'chart', 'charts/linkerd'],
+    ['helm', 'inspect', 'chart', '/tmp/charts/linkerd'],
     // package
     [
       'helm',
       'package',
-      'charts/linkerd',
+      '/tmp/charts/linkerd',
       '--version=3.1.1',
       '--app-version=v3.1.1alpha'
     ],
     // update
-    ['helm', 'dependency', 'update', 'charts/linkerd'],
+    ['helm', 'dependency', 'update', '/tmp/charts/linkerd'],
     // push
     [
       'helm',
       'push',
-      'linkerd-*',
+      '/tmp/charts/linkerd/linkerd-0.1.2.tgz',
       'https://charts.bitnami.com/bitnami',
       '--username=admin',
       '--password=123456',
       '--force'
     ]
   ]
-  await withMockedExec(conf, {}, async mock => {
+  const files = {
+    tmp: {
+      charts: {
+        linkerd: {
+          'linkerd-0.1.2.tgz': 'whatever',
+          'linkkerd-mocks.yaml': 'whatever',
+          'Chart.yaml': 'whatever',
+          'values.yaml': 'whatever'
+        }
+      }
+    }
+  }
+  await withMockedExec(conf, files, async mock => {
     await run()
     expect(args(mock.mock.calls)).toEqual(expected)
   })
@@ -196,7 +210,7 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
     [repo]: 'https://charts.bitnami.com/bitnami',
     [repoAlias]: 'bitnami',
     [values]: '{"test": "123"}',
-    [valueFiles]: '["./file1.yml", "./file2.yml"]'
+    [valueFiles]: '["/tmp/file1.yml", "/tmp/file2.yml"]'
   }
   const expected = [
     ['helm', 'repo', 'add', 'bitnami', 'https://charts.bitnami.com/bitnami'],
@@ -214,14 +228,16 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
       '--version=3.1.1',
       '--timeout=1m30s',
       '--atomic',
-      '--values=./file1.yml',
-      '--values=./file2.yml',
+      '--values=/tmp/file1.yml',
+      '--values=/tmp/file2.yml',
       '--values=./values.yml'
     ]
   ]
   const files = {
-    'file1.yml': 'test: file1',
-    'file2.yml': 'test: file2'
+    tmp: {
+      'file1.yml': 'test: file1',
+      'file2.yml': 'test: file2'
+    }
   }
   await withMockedExec(conf, files, async mock => {
     await run()
@@ -243,7 +259,7 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
     [repoUsername]: 'admin',
     [repoPassword]: '123456',
     [values]: '{"test": "123"}',
-    [valueFiles]: '["./file1.yml", "./file2.yml"]'
+    [valueFiles]: '["/tmp/file1.yml", "/tmp/file2.yml"]'
   }
   const expected = [
     [
@@ -269,14 +285,16 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
       '--version=3.1.1',
       '--timeout=1m30s',
       '--atomic',
-      '--values=./file1.yml',
-      '--values=./file2.yml',
+      '--values=/tmp/file1.yml',
+      '--values=/tmp/file2.yml',
       '--values=./values.yml'
     ]
   ]
   const files = {
-    'file1.yml': 'test: file1',
-    'file2.yml': 'test: file2'
+    tmp: {
+      'file1.yml': 'test: file1',
+      'file2.yml': 'test: file2'
+    }
   }
   await withMockedExec(conf, files, async mock => {
     await run()
