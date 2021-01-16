@@ -171,7 +171,7 @@ test('test_valid_push_chart_with_single_dependency', async () => {
     [
       'helm',
       'push',
-      'charts/linkerd-*',
+      'linkerd-*',
       'https://charts.bitnami.com/bitnami',
       '--username=admin',
       '--password=123456',
