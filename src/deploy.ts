@@ -327,7 +327,7 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   args.push(`--username=${conf.repoUsername}`)
   args.push(`--password=${conf.repoPassword}`)
   if (conf.force) args.push('--force')
-  await helmExec(['push', `${conf.chart}-*`, conf.repo, ...args], {cwd})
+  await helmExec(['push', `${cwd}-*`, conf.repo, ...args])
 }
 
 /**
