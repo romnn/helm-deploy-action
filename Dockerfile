@@ -35,6 +35,11 @@ RUN apk add --virtual .helm-build-deps git make \
     && helm plugin install https://github.com/chartmuseum/helm-push.git --version ${HELM_PLUGIN_PUSH_VERSION} \
     && apk del --purge .helm-build-deps
 
+# RUN useradd -u 8877 actions-user
+# USER actions-user
+RUN addgroup -S actions-group && adduser -S actions-user -G actions-group
+USER actions-user
+
 WORKDIR /action
 COPY --from=DEPS /action/dist /action/dist
 ENTRYPOINT ["node", "/action/dist/index.js"]
