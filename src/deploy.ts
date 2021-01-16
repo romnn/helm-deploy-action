@@ -325,7 +325,7 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   let args = []
   if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
   if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`)
-  await helmExec(['package', cwd, ...args])
+  await helmExec(['package', cwd, ...args], {cwd})
 
   await helmExec(['dependency', 'update', cwd])
 
@@ -334,6 +334,10 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   args.push(`--password=${conf.repoPassword}`)
   if (conf.force) args.push('--force')
   const packaged = await asyncGlob(`${cwd}/${conf.chart}-*.tgz`)
+  if (packaged.length < 1)
+    throw new Error(
+      'Could not find packaged chart to upload. This might be an internal error.'
+    )
   for (const p of packaged) await helmExec(['push', p, conf.repo, ...args])
 }
 
