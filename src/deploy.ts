@@ -109,7 +109,7 @@ function parseConfig(): HelmDeployConfig {
 
     // push
     appVersion: parseInput('app-version'),
-    chartDir: parseInput('chart-dir', isPush),
+    chartDir: parseInput('chart-dir'),
     force: parseInput('force') === 'true'
   }
 }
@@ -307,22 +307,21 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
  */
 async function helmPush(conf: HelmDeployConfig): Promise<void> {
   if (!conf.chart) throw new Error('required and not supplied: chart')
-  if (!conf.chartDir) throw new Error('required and not supplied: chart-dir')
   if (!conf.repo) throw new Error('required and not supplied: repo')
   if (!conf.repoUsername)
     throw new Error('required and not supplied: repo-username')
   if (!conf.repoPassword)
     throw new Error('required and not supplied: repo-password')
 
-  const cwd = path.join(conf.chartDir, conf.chart)
-  await helmExec(['inspect', 'chart'], {cwd})
+  const cwd = path.join(conf.chartDir ?? '.', conf.chart)
+  await helmExec(['inspect', 'chart', cwd])
 
   let args = []
   if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
   if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`)
-  await helmExec(['package', ...args], {cwd})
+  await helmExec(['package', cwd, ...args])
 
-  await helmExec(['dependency', 'update'], {cwd})
+  await helmExec(['dependency', 'update', cwd])
 
   args = []
   args.push(`--username=${conf.repoUsername}`)

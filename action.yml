@@ -75,6 +75,7 @@ inputs:
   chart-dir:
     description: helm chart path
     required: false
+    default: .
   force:
     description: force overrides charts with the same version
     required: false

@@ -156,11 +156,17 @@ test('test_valid_push_chart_with_single_dependency', async () => {
     ['helm', 'repo', 'add', 'bitnami', 'https://charts.bitnami.com/bitnami'],
     ['helm', 'repo', 'update'],
     // inspect
-    ['helm', 'inspect', 'chart'],
+    ['helm', 'inspect', 'chart', 'charts/linkerd'],
     // package
-    ['helm', 'package', '--version=3.1.1', '--app-version=v3.1.1alpha'],
+    [
+      'helm',
+      'package',
+      'charts/linkerd',
+      '--version=3.1.1',
+      '--app-version=v3.1.1alpha'
+    ],
     // update
-    ['helm', 'dependency', 'update'],
+    ['helm', 'dependency', 'update', 'charts/linkerd'],
     // push
     [
       'helm',
