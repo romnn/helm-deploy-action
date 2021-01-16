@@ -21,10 +21,11 @@ LABEL maintainer="romnn <contact@romnn.com>" \
 ENV HELM_VERSION v3.3.1
 ENV HELM_PLUGIN_PUSH_VERSION v0.9.0
 
-RUN mkdir /action-data
-ENV XDG_DATA_HOME=/action-data
-ENV XDG_CACHE_HOME=/action-data
-ENV XDG_CONFIG_HOME=/action-data
+RUN mkdir -p /action-data/helm
+ENV XDG_DATA_HOME=/action-data/helm
+ENV XDG_CACHE_HOME=/action-data/helm
+ENV XDG_CONFIG_HOME=/action-data/helm
+ENV DEPLOY_ACTION_DATA_HOME=/action-data
 
 RUN apk add curl jq nodejs tar bash --no-cache
 RUN set -ex \
@@ -41,6 +42,6 @@ RUN chmod -R 777 /action-data && chown -R nobody /action-data
 # USER actions-user
 USER nobody
 
-WORKDIR /action
+WORKDIR /action-data
 COPY --from=DEPS /action/dist /action/dist
 ENTRYPOINT ["node", "/action/dist/index.js"]

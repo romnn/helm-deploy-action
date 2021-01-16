@@ -168,7 +168,7 @@ async function renderFiles(
   const promises = files.map(async (file: string) => {
     const content = await fs.promises.readFile(file, {encoding: 'utf8'})
     const rendered = Mustache.render(content, data, {}, tags)
-    await fs.promises.writeFile(file, rendered)
+    await fs.promises.writeFile(file, rendered, {mode: 0o777})
   })
   Promise.all(promises)
 }
@@ -274,14 +274,15 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
 
   // prepare values override file
   if (conf.values && conf.values.length > 0)
-    await fs.promises.writeFile('./values.yml', conf.values)
+    await fs.promises.writeFile('./values.yml', conf.values, {mode: 0o777})
 
   // prepare kubeconfig file
   if (process.env.KUBECONFIG_FILE) {
     process.env.KUBECONFIG = './kubeconfig.yml'
     await fs.promises.writeFile(
       process.env.KUBECONFIG,
-      process.env.KUBECONFIG_FILE
+      process.env.KUBECONFIG_FILE,
+      {mode: 0o777}
     )
   }
 
