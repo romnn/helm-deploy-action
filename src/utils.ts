@@ -4,6 +4,7 @@ import * as exec from '@actions/exec'
 import * as path from 'path'
 import * as cp from 'child_process'
 import chmodr from 'chmodr'
+import chownr from 'chownr'
 
 interface Dict<T> {
   [key: string]: T
@@ -54,6 +55,26 @@ async function mkdirs(dir: string): Promise<void> {
     }
     i++
   }
+}
+
+export async function chownR(
+  dir: string,
+  owner: number,
+  group: number
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    chownr(dir, owner, group, err => {
+      if (err) {
+        reject(
+          new Error(
+            `failed to change owner and group for ${path}: ${err.message}`
+          )
+        )
+      } else {
+        resolve()
+      }
+    })
+  })
 }
 
 export async function chmodR(dir: string, mode: number): Promise<void> {
