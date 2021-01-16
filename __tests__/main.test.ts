@@ -159,6 +159,8 @@ test('test_valid_push_chart_with_single_dependency', async () => {
     ['helm', 'repo', 'update'],
     // inspect
     ['helm', 'inspect', 'chart', '/tmp/charts/linkerd'],
+    // update
+    ['helm', 'dependency', 'update', '/tmp/charts/linkerd'],
     // package
     [
       'helm',
@@ -167,8 +169,6 @@ test('test_valid_push_chart_with_single_dependency', async () => {
       '--version=3.1.1',
       '--app-version=v3.1.1alpha'
     ],
-    // update
-    ['helm', 'dependency', 'update', '/tmp/charts/linkerd'],
     // push
     [
       'helm',

@@ -322,12 +322,12 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   )
   await helmExec(['inspect', 'chart', cwd])
 
+  await helmExec(['dependency', 'update', cwd])
+
   let args = []
   if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
   if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`)
   await helmExec(['package', cwd, ...args], {cwd})
-
-  await helmExec(['dependency', 'update', cwd])
 
   args = []
   args.push(`--username=${conf.repoUsername}`)
