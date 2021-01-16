@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as glob from 'glob'
 import * as util from 'util'
+import * as userid from 'userid'
 import * as Mustache from 'mustache'
 import {chownR, chmodR} from './utils'
 
@@ -350,6 +351,9 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   for (const p of packaged) await helmExec(['push', p, conf.repo, ...args])
   // Fix: the container uses root and we need to namually set the chart directory permissions
   // to something that the following actions can still read and write
+  const uid = userid.uid('nobody')
+  const gid = userid.gid('nobody')
+  await chownR(path.dirname(chartPath), uid, gid)
   await chmodR(path.dirname(chartPath), 0o777)
 }
 
