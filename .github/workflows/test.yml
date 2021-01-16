@@ -9,12 +9,22 @@ jobs:
       - run: npm install
       - run: npm run all
 
+  test-container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: docker build -t helm-deploy-action .
+      - name: check helm version
+        run: docker run --entrypoint helm helm-deploy-action version
+      - name: check helm push plugin
+        run: docker run --entrypoint helm helm-deploy-action push --help
+
   integration-tests:
     runs-on: ubuntu-latest
     if: ${{ false }} # disabled for now
     steps:
       - uses: actions/checkout@v2
-      - name: Setup Minikube
+      - name: setup Minikube
         uses: manusa/actions-setup-minikube@v2.3.0
         with:
           minikube version: "v1.16.0"
@@ -27,7 +37,7 @@ jobs:
           echo $KUBECONFIG_FILE
           echo "::set-output name=config::${KUBECONFIG_FILE}"
 
-      - name: Deploy drone
+      - name: deploy drone
         uses: ./
         with:
           release: drone-release
@@ -37,7 +47,7 @@ jobs:
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
 
-      - name: Deploy couchdb
+      - name: deploy couchdb
         uses: ./
         with:
           release: drone-release
@@ -47,7 +57,7 @@ jobs:
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
 
-      - name: Create default2 namespace
+      - name: create default2 namespace
         run: kubectl create namespace default2
       - name: Deploy envoy
         uses: ./
@@ -60,7 +70,7 @@ jobs:
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
 
-      - name: Remove drone deployment
+      - name: remove drone deployment
         uses: ./
         with:
           command: remove
@@ -69,7 +79,7 @@ jobs:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
 
 
-      - name: Remove envoy deployment
+      - name: remove envoy deployment
         uses: ./
         with:
           command: remove
