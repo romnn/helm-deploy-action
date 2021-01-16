@@ -273,12 +273,19 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
   }
 
   // prepare values override file
+  const valuesFile = path.join(
+    process.env.DEPLOY_ACTION_DATA_HOME ?? '.',
+    'values.yml'
+  )
   if (conf.values && conf.values.length > 0)
-    await fs.promises.writeFile('./values.yml', conf.values, {mode: 0o777})
+    await fs.promises.writeFile(valuesFile, conf.values, {mode: 0o777})
 
   // prepare kubeconfig file
   if (process.env.KUBECONFIG_FILE) {
-    process.env.KUBECONFIG = './kubeconfig.yml'
+    process.env.KUBECONFIG = path.join(
+      process.env.DEPLOY_ACTION_DATA_HOME ?? '.',
+      'kubeconfig.yml'
+    )
     await fs.promises.writeFile(
       process.env.KUBECONFIG,
       process.env.KUBECONFIG_FILE,
@@ -288,7 +295,7 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
 
   // render value files using github variables
   if (conf.valueFiles)
-    await renderFiles(conf.valueFiles.concat(['./values.yml']), {
+    await renderFiles(conf.valueFiles.concat([valuesFile]), {
       secrets: conf.secrets ?? {},
       deployment: context.payload.deployment
     })
@@ -301,7 +308,7 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
       await helmPush(conf)
       break
     case 'upgrade':
-      await helmUpgrade(conf)
+      await helmUpgrade(conf, valuesFile)
       break
     default:
       throw new Error(`unkown helm command: ${conf.command}`)
@@ -359,7 +366,10 @@ async function helmRemove(conf: HelmDeployConfig): Promise<void> {
 /**
  * Upgrade a helm deployment
  */
-async function helmUpgrade(conf: HelmDeployConfig): Promise<void> {
+async function helmUpgrade(
+  conf: HelmDeployConfig,
+  valuesFile: string
+): Promise<void> {
   const args = []
   if (!conf.release) throw new Error('required and not supplied: release')
   if (!conf.chart) throw new Error('required and not supplied: chart')
@@ -372,7 +382,7 @@ async function helmUpgrade(conf: HelmDeployConfig): Promise<void> {
     for (const f of conf.valueFiles) {
       args.push(`--values=${f}`)
     }
-  if (conf.values && conf.values.length > 0) args.push('--values=./values.yml')
+  if (conf.values && conf.values.length > 0) args.push(`--values=${valuesFile}`)
   await helmExec([
     'upgrade',
     '-n',

@@ -71,7 +71,7 @@ test('test_valid_upgrade_chart', async () => {
       'stable/linkerd',
       '--install',
       '--wait',
-      '--values=./values.yml'
+      '--values=values.yml'
     ]
   ]
   await withMockedExec(conf, {}, async mock => {
@@ -108,7 +108,7 @@ test('test_valid_upgrade_chart_with_options', async () => {
       '--atomic',
       '--values=/tmp/file1.yml',
       '--values=/tmp/file2.yml',
-      '--values=./values.yml'
+      '--values=values.yml'
     ]
   ]
   const files = {
@@ -230,7 +230,7 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
       '--atomic',
       '--values=/tmp/file1.yml',
       '--values=/tmp/file2.yml',
-      '--values=./values.yml'
+      '--values=values.yml'
     ]
   ]
   const files = {
@@ -287,7 +287,7 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
       '--atomic',
       '--values=/tmp/file1.yml',
       '--values=/tmp/file2.yml',
-      '--values=./values.yml'
+      '--values=values.yml'
     ]
   ]
   const files = {
