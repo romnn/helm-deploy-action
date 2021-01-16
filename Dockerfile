@@ -21,9 +21,12 @@ LABEL maintainer="romnn <contact@romnn.com>" \
 ENV HELM_VERSION v3.3.1
 ENV HELM_PLUGIN_PUSH_VERSION v0.9.0
 
-ENV XDG_DATA_HOME=/opt/xdg
-ENV XDG_CACHE_HOME=/opt/xdg
-ENV XDG_CONFIG_HOME=/opt/xdg
+# ENV XDG_DATA_HOME=/opt/xdg
+# ENV XDG_CACHE_HOME=/opt/xdg
+# ENV XDG_CONFIG_HOME=/opt/xdg
+
+# RUN useradd -u 8877 actions-user
+# USER actions-user
 
 RUN apk add curl jq nodejs tar bash --no-cache
 RUN set -ex \
@@ -35,8 +38,6 @@ RUN apk add --virtual .helm-build-deps git make \
     && helm plugin install https://github.com/chartmuseum/helm-push.git --version ${HELM_PLUGIN_PUSH_VERSION} \
     && apk del --purge .helm-build-deps
 
-# RUN useradd -u 8877 actions-user
-# USER actions-user
 RUN addgroup -S actions-group && adduser -S actions-user -G actions-group
 USER actions-user
 
