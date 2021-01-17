@@ -1,15 +1,12 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import * as exec from '@actions/exec'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as glob from 'glob'
 import * as util from 'util'
-// import * as lu from 'linux-sys-user'
 import * as Mustache from 'mustache'
-import {chownR, chmodR} from './utils'
+import {chownr, chmodr, helmExec, getUserInfo} from './utils'
 
-// const getUserInfo = util.promisify(lu.getUserInfo)
 const asyncGlob = util.promisify(glob.glob)
 
 function parseValues(values: object | string | null | undefined): string {
@@ -215,16 +212,6 @@ export interface HelmDeployConfig {
   force?: boolean
 }
 
-/**
- * Execute a helm command
- */
-async function helmExec(
-  args: string[],
-  options?: exec.ExecOptions
-): Promise<void> {
-  await exec.exec('helm', args, options)
-}
-
 async function addHelmRepo(repo: HelmRepo): Promise<void> {
   if (!repo.repository)
     throw new Error('required and not supplied: repo / dependency repository')
@@ -353,8 +340,9 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   // Fix: the container uses root and we need to namually set the chart directory permissions
   // to something that the following actions can still read and write
   // const user = await getUserInfo('nobody')
-  await chownR(path.dirname(chartPath), 65534, 65534)
-  await chmodR(path.dirname(chartPath), 0o777)
+  const {uid, gid} = await getUserInfo('nobody')
+  await chownr(path.dirname(chartPath), uid, gid)
+  await chmodr(path.dirname(chartPath), 0o777)
 }
 
 /**

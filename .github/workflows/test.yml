@@ -24,7 +24,7 @@ jobs:
     if: ${{ false }} # disabled for now
     steps:
       - uses: actions/checkout@v2
-      - name: setup Minikube
+      - name: setup minikube
         uses: manusa/actions-setup-minikube@v2.3.0
         with:
           minikube version: "v1.16.0"
