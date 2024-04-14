@@ -1,124 +1,125 @@
-import * as core from '@actions/core'
-import * as github from '@actions/github'
-import * as exec from '@actions/exec'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as glob from 'glob'
-import * as util from 'util'
+import * as core from "@actions/core";
+import * as github from "@actions/github";
+import * as exec from "@actions/exec";
+import * as fs from "fs";
+import * as path from "path";
+import { glob } from "glob";
+import * as util from "util";
+import { RequestError } from "@octokit/request-error";
 // import * as lu from 'linux-sys-user'
-import * as Mustache from 'mustache'
-import {chownR, chmodR} from './utils'
+import * as Mustache from "mustache";
+import { chownR, chmodR } from "./utils";
 
 // const getUserInfo = util.promisify(lu.getUserInfo)
-const asyncGlob = util.promisify(glob.glob)
+// const asyncGlob = util.promisify(glob.glob);
 
 function parseValues(values: object | string | null | undefined): string {
   if (!values) {
-    return '{}'
+    return "{}";
   }
-  if (typeof values === 'object') {
-    return JSON.stringify(values)
+  if (typeof values === "object") {
+    return JSON.stringify(values);
   }
-  return values
+  return values;
 }
 
 function parseSecrets(secrets: string | object): string | object {
-  if (typeof secrets === 'string') {
+  if (typeof secrets === "string") {
     try {
-      return JSON.parse(secrets)
+      return JSON.parse(secrets);
     } catch (err) {
-      return secrets
+      return secrets;
     }
   }
-  return secrets
+  return secrets;
 }
 
 function parseDependencies(
-  deps: object | string | null | undefined
+  deps: object | string | null | undefined,
 ): HelmRepo[] {
-  let depsObj: object | null = null
-  if (typeof deps === 'string' && deps.length > 0) {
+  let depsObj: object | null = null;
+  if (typeof deps === "string" && deps.length > 0) {
     try {
-      depsObj = JSON.parse(deps)
+      depsObj = JSON.parse(deps);
     } catch (err) {
-      throw new Error('dependencies must be a valid YAML or JSON array')
+      throw new Error("dependencies must be a valid YAML or JSON array");
     }
-  } else if (typeof deps === 'object') {
-    depsObj = deps
+  } else if (typeof deps === "object") {
+    depsObj = deps;
   } else if (Array.isArray(deps)) {
-    return deps
+    return deps;
   }
   if (!depsObj) {
-    return []
+    return [];
   }
   if (Array.isArray(depsObj)) {
-    return depsObj
+    return depsObj;
   }
-  return [depsObj]
+  return [depsObj];
 }
 
 function parseValueFiles(files: string | string[]): string[] {
-  let fileList
-  if (typeof files === 'string') {
+  let fileList;
+  if (typeof files === "string") {
     try {
-      fileList = JSON.parse(files)
+      fileList = JSON.parse(files);
     } catch (err) {
-      fileList = [files]
+      fileList = [files];
     }
   } else {
-    fileList = files
+    fileList = files;
   }
   if (!Array.isArray(fileList)) {
-    return []
+    return [];
   }
-  return fileList.filter(f => !!f)
+  return fileList.filter((f) => !!f);
 }
 
 /**
  * Parse actions input values
  */
 function parseInput(name: string, required = false): string {
-  return core.getInput(name, {required})
+  return core.getInput(name, { required });
 }
 
 /**
  * Parse the action's entire config
  */
 function parseConfig(): HelmDeployConfig {
-  const command = parseInput('command').toLowerCase()
+  const command = parseInput("command").toLowerCase();
 
-  const isPush = command === 'push'
-  const isUpgrade = command === 'upgrade'
-  const isRemove = command === 'remove'
+  const isPush = command === "push";
+  const isUpgrade = command === "upgrade";
+  const isRemove = command === "remove";
   return {
     command,
 
     // remove and upgrade
-    release: parseInput('release', isRemove || isUpgrade),
-    namespace: parseInput('namespace'),
-    timeout: parseInput('timeout'),
+    release: parseInput("release", isRemove || isUpgrade),
+    namespace: parseInput("namespace"),
+    timeout: parseInput("timeout"),
 
     // upgrade
-    values: parseValues(parseInput('values')),
-    dry: parseInput('dry-run') === 'true',
-    atomic: parseInput('atomic') === 'true',
-    valueFiles: parseValueFiles(parseInput('value-files')),
-    secrets: parseSecrets(parseInput('secrets')),
+    values: parseValues(parseInput("values")),
+    dry: parseInput("dry-run") === "true",
+    atomic: parseInput("atomic") === "true",
+    valueFiles: parseValueFiles(parseInput("value-files")),
+    secrets: parseSecrets(parseInput("secrets")),
 
     // upgrade and push
-    chart: parseInput('chart', isUpgrade || isPush),
-    chartVersion: parseInput('chart-version'),
-    repo: parseInput('repo', isPush),
-    repoAlias: parseInput('repo-alias'),
-    repoUsername: parseInput('repo-username'),
-    repoPassword: parseInput('repo-password'),
-    dependencies: parseDependencies(parseInput('dependencies')),
+    chart: parseInput("chart", isUpgrade || isPush),
+    chartVersion: parseInput("chart-version"),
+    repo: parseInput("repo", isPush),
+    repoAlias: parseInput("repo-alias"),
+    repoUsername: parseInput("repo-username"),
+    repoPassword: parseInput("repo-password"),
+    dependencies: parseDependencies(parseInput("dependencies")),
 
     // push
-    appVersion: parseInput('app-version'),
-    chartDir: parseInput('chart-dir'),
-    force: parseInput('force') === 'true'
-  }
+    appVersion: parseInput("app-version"),
+    chartDir: parseInput("chart-dir"),
+    force: parseInput("force") === "true",
+  };
 }
 
 /**
@@ -126,35 +127,39 @@ function parseConfig(): HelmDeployConfig {
  */
 export async function status(
   state:
-    | 'inactive'
-    | 'error'
-    | 'pending'
-    | 'success'
-    | 'queued'
-    | 'in_progress'
-    | 'failure'
+    | "inactive"
+    | "error"
+    | "pending"
+    | "success"
+    | "queued"
+    | "in_progress"
+    | "failure",
 ): Promise<void> {
   try {
-    const context = github.context
-    const deployment = context.payload.deployment
-    const token = core.getInput('github-token')
+    const context = github.context;
+    const deployment = context.payload.deployment;
+    const token = core.getInput("github-token");
     if (!token || !deployment) {
-      return
+      return;
     }
 
-    const client = github.getOctokit(token)
-    const url = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${context.sha}/checks`
+    const client = github.getOctokit(token);
+    const url = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${context.sha}/checks`;
 
-    await client.repos.createDeploymentStatus({
+    await client.rest.repos.createDeploymentStatus({
       ...context.repo,
       deployment_id: deployment.id,
       state,
       log_url: url,
       target_url: url,
-      headers: {accept: 'application/vnd.github.ant-man-preview+json'}
-    })
-  } catch (error) {
-    core.warning(`failed to set deployment status: ${error.message}`)
+      headers: { accept: "application/vnd.github.ant-man-preview+json" },
+    });
+  } catch (error: unknown) {
+    if (error instanceof RequestError) {
+      core.warning(`failed to set deployment status: ${error.message}`);
+    } else {
+      core.warning("failed to set deployment status");
+    }
   }
 }
 
@@ -164,55 +169,55 @@ export async function status(
  */
 async function renderFiles(
   files: string[],
-  data: {secrets: object | string; deployment: string[]}
+  data: { secrets: object | string; deployment: string[] },
 ): Promise<void> {
-  const tags: [string, string] = ['${{', '}}']
+  const tags: [string, string] = ["${{", "}}"];
   const promises = files.map(async (file: string) => {
-    const content = await fs.promises.readFile(file, {encoding: 'utf8'})
-    const rendered = Mustache.render(content, data, {}, tags)
-    await fs.promises.writeFile(file, rendered, {mode: 0o777})
-  })
-  Promise.all(promises)
+    const content = await fs.promises.readFile(file, { encoding: "utf8" });
+    const rendered = Mustache.render(content, data, {}, tags);
+    await fs.promises.writeFile(file, rendered, { mode: 0o777 });
+  });
+  Promise.all(promises);
 }
 
 export interface HelmRepo {
-  repository?: string
-  alias?: string
-  username?: string
-  password?: string
+  repository?: string;
+  alias?: string;
+  username?: string;
+  password?: string;
 }
 
 /**
  * Helm deployment configuration
  */
 export interface HelmDeployConfig {
-  command: string
+  command: string;
 
   // remove and upgrade
-  release?: string
-  namespace?: string
-  timeout?: string
+  release?: string;
+  namespace?: string;
+  timeout?: string;
 
   // upgrade
-  values?: string
-  dry?: boolean
-  atomic?: boolean
-  valueFiles?: string[]
-  secrets?: string | object
+  values?: string;
+  dry?: boolean;
+  atomic?: boolean;
+  valueFiles?: string[];
+  secrets?: string | object;
 
   // upgrade and push
-  chart?: string
-  chartVersion?: string
-  repo?: string
-  repoAlias?: string
-  repoUsername?: string
-  repoPassword?: string
-  dependencies?: HelmRepo[]
+  chart?: string;
+  chartVersion?: string;
+  repo?: string;
+  repoAlias?: string;
+  repoUsername?: string;
+  repoPassword?: string;
+  dependencies?: HelmRepo[];
 
   // push
-  appVersion?: string
-  chartDir?: string
-  force?: boolean
+  appVersion?: string;
+  chartDir?: string;
+  force?: boolean;
 }
 
 /**
@@ -220,100 +225,102 @@ export interface HelmDeployConfig {
  */
 async function helmExec(
   args: string[],
-  options?: exec.ExecOptions
+  options?: exec.ExecOptions,
 ): Promise<void> {
-  await exec.exec('helm', args, options)
+  await exec.exec("helm", args, options);
 }
 
 async function addHelmRepo(repo: HelmRepo): Promise<void> {
   if (!repo.repository)
-    throw new Error('required and not supplied: repo / dependency repository')
+    throw new Error("required and not supplied: repo / dependency repository");
   if (!repo.alias)
-    throw new Error('required and not supplied: repo-alias / dependency alias')
-  const args = ['repo', 'add', repo.alias, repo.repository]
-  let supplied_both_or_none = true
+    throw new Error("required and not supplied: repo-alias / dependency alias");
+  const args = ["repo", "add", repo.alias, repo.repository];
+  let supplied_both_or_none = true;
   if (repo.username) {
-    supplied_both_or_none = !supplied_both_or_none
-    args.push(`--username=${repo.username}`)
+    supplied_both_or_none = !supplied_both_or_none;
+    args.push(`--username=${repo.username}`);
   }
   if (repo.password) {
-    supplied_both_or_none = !supplied_both_or_none
-    args.push(`--password=${repo.password}`)
+    supplied_both_or_none = !supplied_both_or_none;
+    args.push(`--password=${repo.password}`);
   }
   if (!supplied_both_or_none)
-    throw new Error('required and not supplied: repo-username or repo-password')
-  await helmExec(args)
+    throw new Error(
+      "required and not supplied: repo-username or repo-password",
+    );
+  await helmExec(args);
 }
 
 /**
  * Deploy or remove a helm chart
  */
 async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
-  const context = github.context
-  await status('pending')
+  const context = github.context;
+  await status("pending");
 
-  if (!conf.command) throw new Error('required and not supplied: command')
+  if (!conf.command) throw new Error("required and not supplied: command");
 
   // add the helm repository
   if (conf.repo) {
-    if (!conf.repoAlias) conf.repoAlias = 'source-chart-repo'
+    if (!conf.repoAlias) conf.repoAlias = "source-chart-repo";
     await addHelmRepo({
       repository: conf.repo,
       alias: conf.repoAlias,
       username: conf.repoUsername,
-      password: conf.repoPassword
-    })
-    await helmExec(['repo', 'update'])
+      password: conf.repoPassword,
+    });
+    await helmExec(["repo", "update"]);
   }
 
   // add dependency repositories
   if (conf.dependencies && conf.dependencies.length > 0) {
     for (const dep of conf.dependencies) {
-      await addHelmRepo(dep)
+      await addHelmRepo(dep);
     }
-    await helmExec(['repo', 'update'])
+    await helmExec(["repo", "update"]);
   }
 
   // prepare values override file
   const valuesFile = path.join(
-    process.env.DEPLOY_ACTION_DATA_HOME ?? '.',
-    'values.yml'
-  )
+    process.env.DEPLOY_ACTION_DATA_HOME ?? ".",
+    "values.yml",
+  );
   if (conf.values && conf.values.length > 0)
-    await fs.promises.writeFile(valuesFile, conf.values, {mode: 0o777})
+    await fs.promises.writeFile(valuesFile, conf.values, { mode: 0o777 });
 
   // prepare kubeconfig file
   if (process.env.KUBECONFIG_FILE) {
     process.env.KUBECONFIG = path.join(
-      process.env.DEPLOY_ACTION_DATA_HOME ?? '.',
-      'kubeconfig.yml'
-    )
+      process.env.DEPLOY_ACTION_DATA_HOME ?? ".",
+      "kubeconfig.yml",
+    );
     await fs.promises.writeFile(
       process.env.KUBECONFIG,
       process.env.KUBECONFIG_FILE,
-      {mode: 0o777}
-    )
+      { mode: 0o777 },
+    );
   }
 
   // render value files using github variables
   if (conf.valueFiles)
     await renderFiles(conf.valueFiles.concat([valuesFile]), {
       secrets: conf.secrets ?? {},
-      deployment: context.payload.deployment
-    })
+      deployment: context.payload.deployment,
+    });
 
   switch (conf.command) {
-    case 'remove':
-      await helmRemove(conf)
-      break
-    case 'push':
-      await helmPush(conf)
-      break
-    case 'upgrade':
-      await helmUpgrade(conf, valuesFile)
-      break
+    case "remove":
+      await helmRemove(conf);
+      break;
+    case "push":
+      await helmPush(conf);
+      break;
+    case "upgrade":
+      await helmUpgrade(conf, valuesFile);
+      break;
     default:
-      throw new Error(`unkown helm command: ${conf.command}`)
+      throw new Error(`unkown helm command: ${conf.command}`);
   }
 }
 
@@ -321,50 +328,50 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
  * Push a helm chart to a helm repository
  */
 async function helmPush(conf: HelmDeployConfig): Promise<void> {
-  if (!conf.chart) throw new Error('required and not supplied: chart')
-  if (!conf.repo) throw new Error('required and not supplied: repo')
+  if (!conf.chart) throw new Error("required and not supplied: chart");
+  if (!conf.repo) throw new Error("required and not supplied: repo");
   if (!conf.repoUsername)
-    throw new Error('required and not supplied: repo-username')
+    throw new Error("required and not supplied: repo-username");
   if (!conf.repoPassword)
-    throw new Error('required and not supplied: repo-password')
+    throw new Error("required and not supplied: repo-password");
 
   const chartPath = await fs.promises.realpath(
-    path.join(conf.chartDir ?? '.', conf.chart)
-  )
-  await helmExec(['inspect', 'chart', chartPath])
+    path.join(conf.chartDir ?? ".", conf.chart),
+  );
+  await helmExec(["inspect", "chart", chartPath]);
 
-  await helmExec(['dependency', 'update', chartPath])
+  await helmExec(["dependency", "update", chartPath]);
 
-  let args = []
-  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
-  if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`)
-  await helmExec(['package', chartPath, ...args], {cwd: chartPath})
+  let args = [];
+  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`);
+  if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`);
+  await helmExec(["package", chartPath, ...args], { cwd: chartPath });
 
-  args = []
-  args.push(`--username=${conf.repoUsername}`)
-  args.push(`--password=${conf.repoPassword}`)
-  if (conf.force) args.push('--force')
-  const packaged = await asyncGlob(`${chartPath}/${conf.chart}-*.tgz`)
+  args = [];
+  args.push(`--username=${conf.repoUsername}`);
+  args.push(`--password=${conf.repoPassword}`);
+  if (conf.force) args.push("--force");
+  const packaged = await glob(`${chartPath}/${conf.chart}-*.tgz`, {});
   if (packaged.length < 1)
     throw new Error(
-      'Could not find packaged chart to upload. This might be an internal error.'
-    )
-  for (const p of packaged) await helmExec(['push', p, conf.repo, ...args])
+      "Could not find packaged chart to upload. This might be an internal error.",
+    );
+  for (const p of packaged) await helmExec(["push", p, conf.repo, ...args]);
   // Fix: the container uses root and we need to namually set the chart directory permissions
   // to something that the following actions can still read and write
   // const user = await getUserInfo('nobody')
-  await chownR(path.dirname(chartPath), 65534, 65534)
-  await chmodR(path.dirname(chartPath), 0o777)
+  await chownR(path.dirname(chartPath), 65534, 65534);
+  await chmodR(path.dirname(chartPath), 0o777);
 }
 
 /**
  * Remove a helm deployment
  */
 async function helmRemove(conf: HelmDeployConfig): Promise<void> {
-  if (!conf.release) throw new Error('required and not supplied: release')
-  if (!conf.namespace) conf.namespace = 'default'
-  await helmExec(['delete', '-n', conf.namespace, conf.release])
-  await status('inactive')
+  if (!conf.release) throw new Error("required and not supplied: release");
+  if (!conf.namespace) conf.namespace = "default";
+  await helmExec(["delete", "-n", conf.namespace, conf.release]);
+  await status("inactive");
 }
 
 /**
@@ -372,37 +379,38 @@ async function helmRemove(conf: HelmDeployConfig): Promise<void> {
  */
 async function helmUpgrade(
   conf: HelmDeployConfig,
-  valuesFile: string
+  valuesFile: string,
 ): Promise<void> {
-  const args = []
-  if (!conf.release) throw new Error('required and not supplied: release')
-  if (!conf.chart) throw new Error('required and not supplied: chart')
-  if (!conf.namespace) conf.namespace = 'default'
-  if (conf.dry) args.push('--dry-run')
-  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
-  if (conf.timeout) args.push(`--timeout=${conf.timeout}`)
-  if (conf.atomic) args.push('--atomic')
+  const args = [];
+  if (!conf.release) throw new Error("required and not supplied: release");
+  if (!conf.chart) throw new Error("required and not supplied: chart");
+  if (!conf.namespace) conf.namespace = "default";
+  if (conf.dry) args.push("--dry-run");
+  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`);
+  if (conf.timeout) args.push(`--timeout=${conf.timeout}`);
+  if (conf.atomic) args.push("--atomic");
   if (conf.valueFiles)
     for (const f of conf.valueFiles) {
-      args.push(`--values=${f}`)
+      args.push(`--values=${f}`);
     }
-  if (conf.values && conf.values.length > 0) args.push(`--values=${valuesFile}`)
+  if (conf.values && conf.values.length > 0)
+    args.push(`--values=${valuesFile}`);
   await helmExec([
-    'upgrade',
-    '-n',
+    "upgrade",
+    "-n",
     conf.namespace,
     conf.release,
     conf.chart,
-    '--install',
-    '--wait',
-    ...args
-  ])
-  await status('success')
+    "--install",
+    "--wait",
+    ...args,
+  ]);
+  await status("success");
 }
 
 /**
  * Parse the action's config and start the deployment
  */
 export async function run(): Promise<void> {
-  await deployHelmChart(parseConfig())
+  await deployHelmChart(parseConfig());
 }

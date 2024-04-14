@@ -1,6 +1,6 @@
 name: helm-deploy-action
 description: deploy your helm chart to k8s
-author: romnnn
+author: romnn
 branding:
   icon: upload-cloud
   color: gray-dark
@@ -8,12 +8,10 @@ inputs:
   command:
     description: helm command to be performed (upgrade, install, remove)
     required: true
-    
   # all
   timeout:
     description: timeout for the helm command, e.g. 5m0s
     required: false
-
   # remove and upgrade
   release:
     description: helm release name
@@ -22,7 +20,6 @@ inputs:
     description: k8s namespace
     required: false
     default: default
-
   # upgrade
   values:
     description: helm chart values as YAML or JSON
@@ -44,7 +41,6 @@ inputs:
   secrets:
     description: secret variables to include in value file interpolation as JSON encoded map
     required: false
-
   # upgrade and push
   chart:
     description: helm chart path
@@ -56,7 +52,7 @@ inputs:
     description: helm repo url where the chart is stored
     required: false
   repo-alias:
-    description: helm repo alias name to use 
+    description: helm repo alias name to use
     required: false
   repo-username:
     description: helm repo username
@@ -67,7 +63,6 @@ inputs:
   dependencies:
     description: helm chart dependencies as YAML or JSON
     required: false
-
   # push
   app-version:
     description: version of the app
@@ -80,7 +75,6 @@ inputs:
     description: force overrides charts with the same version
     required: false
     default: false
-
 runs:
   using: docker
   image: docker://romnn/helm-deploy-action:latest

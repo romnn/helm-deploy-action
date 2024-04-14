@@ -16,7 +16,7 @@ jobs:
     - uses: actions/checkout@v1
 
     - name: 'Deploy'
-      uses: 'romnnn/helm-deploy-action@master'
+      uses: 'romnn/helm-deploy-action@master'
       with:
         command: 'upgrade'
         release: 'my-release'
@@ -29,7 +29,7 @@ jobs:
           foo: bar
         value-files: >-
         [
-          "values.yaml", 
+          "values.yaml",
           "values.production.yaml"
         ]
       env:
@@ -47,6 +47,7 @@ The following syntax allows variables to be used in value files:
 #### Testing
 
 Tests are run as part of the actions CI pipeline and can be run locally using [act](https://github.com/nektos/act):
+
 ```bash
 act --platform ubuntu-latest=lucasalt/act_base:latest
 ```
