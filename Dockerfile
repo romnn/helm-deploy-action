@@ -7,7 +7,6 @@ COPY tsconfig.json /action/
 COPY src /action/src
 
 RUN yarn install
-RUN yarn run build
 RUN yarn run package
 
 FROM alpine:latest
