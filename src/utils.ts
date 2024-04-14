@@ -206,11 +206,13 @@ export async function chownr(
  */
 export async function chmodr(dir: string, mode: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    realChmodr(dir, mode, (err) => {
-      if (err) {
+    realChmodr(dir, mode, (err: unknown) => {
+      if (err instanceof Error) {
         reject(
           new Error(`failed to set permissions for ${path}: ${err.message}`),
         );
+      } else if (err) {
+        reject(new Error(`failed to set permissions for ${path}`));
       } else {
         resolve();
       }

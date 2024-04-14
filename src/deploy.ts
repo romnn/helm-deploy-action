@@ -4,9 +4,9 @@ import * as actionExec from "@actions/exec";
 import * as fs from "fs";
 import * as path from "path";
 import * as util from "util";
-import YAML from "yaml";
+import * as YAML from "yaml";
 import { glob } from "glob";
-import { temporaryFile, temporaryWrite } from "tempy";
+import { temporaryWrite } from "tempy";
 import * as Mustache from "mustache";
 import {
   parseConfig,
@@ -180,7 +180,7 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
 
   // add the helm repository
   if (conf.repo) {
-    await authenticateHelm(conf);
+    // await authenticateHelm(conf);
   }
 
   // add dependency repositories
@@ -362,11 +362,8 @@ async function helmUpgrade(
 export async function run(): Promise<void> {
   const conf = await parseConfig();
   if (conf.command === "login") {
-    // const repo = parseInput("repo", isPush);
-    // let repoAlias = parseInput("repo-alias");
-    // const repoUsername = parseInput("repo-username");
-    // const repoPassword = parseInput("repo-password");
     if (conf.repo) {
+      // this is just for testing
       authenticateHelm(conf);
     }
   }
