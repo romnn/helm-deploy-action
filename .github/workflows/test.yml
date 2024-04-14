@@ -1,62 +1,56 @@
 name: test
 on: [push]
-
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - run: npm install
       - run: npm run all
-
   test-container:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - run: docker build -t helm-deploy-action .
       - name: check helm version
         run: docker run --entrypoint helm helm-deploy-action version
       - name: check helm push plugin
         run: docker run --entrypoint helm helm-deploy-action push --help
-
   integration-tests:
     runs-on: ubuntu-latest
     if: ${{ false }} # disabled for now
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: setup Minikube
-        uses: manusa/actions-setup-minikube@v2.3.0
+        uses: manusa/actions-setup-minikube@v2.10.0
         with:
-          minikube version: "v1.16.0"
-          kubernetes version: "v1.19.2"
-
+          minikube version: "v1.32.0"
+          kubernetes version: "v1.29.0"
+          github token: ${{ secrets.GITHUB_TOKEN }}
       - name: Extract minikube kubeconfig
         id: minikube
         run: |
           export KUBECONFIG_FILE=$(cat $HOME/.kube/config)
           echo $KUBECONFIG_FILE
           echo "::set-output name=config::${KUBECONFIG_FILE}"
-
       - name: deploy drone
         uses: ./
         with:
           release: drone-release
           chart: stable/drone
-          repo: 'https://charts.helm.sh/stable'
+          repo: "https://charts.helm.sh/stable"
           repo-alias: stable
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
-
       - name: deploy couchdb
         uses: ./
         with:
           release: drone-release
           chart: stable/drone
-          repo: 'https://charts.helm.sh/stable'
-          repo-alias: 'stable'
+          repo: "https://charts.helm.sh/stable"
+          repo-alias: "stable"
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
-
       - name: create default2 namespace
         run: kubectl create namespace default2
       - name: Deploy envoy
@@ -64,12 +58,11 @@ jobs:
         with:
           release: envoy-release
           chart: stable/envoy
-          repo: 'https://charts.helm.sh/stable'
+          repo: "https://charts.helm.sh/stable"
           repo-alias: stable
           namespace: default2
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
-
       - name: remove drone deployment
         uses: ./
         with:
@@ -77,8 +70,6 @@ jobs:
           release: drone-release
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
-
-
       - name: remove envoy deployment
         uses: ./
         with:
