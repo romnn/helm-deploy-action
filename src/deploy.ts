@@ -1,118 +1,31 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
+import * as actionExec from "@actions/exec";
 import * as fs from "fs";
 import * as path from "path";
+import * as util from "util";
+import YAML from "yaml";
 import { glob } from "glob";
+import { temporaryFile, temporaryWrite } from "tempy";
 import * as Mustache from "mustache";
+import {
+  parseConfig,
+  HelmRepo,
+  HelmDeployConfig,
+  getRepoConfig,
+} from "./config";
 import { chownr, chmodr, helmExec, getUserInfo } from "./utils";
 
-function parseValues(values: object | string | null | undefined): string {
-  if (!values) {
-    return "{}";
+export const unlink = util.promisify(fs.unlink);
+
+async function authenticateHelm(conf: HelmDeployConfig): Promise<void> {
+  const repo = getRepoConfig(conf);
+  try {
+    await addHelmRepo(repo);
+    await helmExec(["repo", "update"]);
+  } catch (err) {
+    await loginHelmRegistry(repo);
   }
-  if (typeof values === "object") {
-    return JSON.stringify(values);
-  }
-  return values;
-}
-
-function parseSecrets(secrets: string | object): string | object {
-  if (typeof secrets === "string") {
-    try {
-      return JSON.parse(secrets);
-    } catch (err) {
-      return secrets;
-    }
-  }
-  return secrets;
-}
-
-function parseDependencies(
-  deps: object | string | null | undefined,
-): HelmRepo[] {
-  let depsObj: object | null = null;
-  if (typeof deps === "string" && deps.length > 0) {
-    try {
-      depsObj = JSON.parse(deps);
-    } catch (err) {
-      throw new Error("dependencies must be a valid YAML or JSON array");
-    }
-  } else if (typeof deps === "object") {
-    depsObj = deps;
-  } else if (Array.isArray(deps)) {
-    return deps;
-  }
-  if (!depsObj) {
-    return [];
-  }
-  if (Array.isArray(depsObj)) {
-    return depsObj;
-  }
-  return [depsObj];
-}
-
-function parseValueFiles(files: string | string[]): string[] {
-  let fileList;
-  if (typeof files === "string") {
-    try {
-      fileList = JSON.parse(files);
-    } catch (err) {
-      fileList = [files];
-    }
-  } else {
-    fileList = files;
-  }
-  if (!Array.isArray(fileList)) {
-    return [];
-  }
-  return fileList.filter((f) => !!f);
-}
-
-/**
- * Parse actions input values
- */
-function parseInput(name: string, required = false): string {
-  return core.getInput(name, { required });
-}
-
-/**
- * Parse the action's entire config
- */
-function parseConfig(): HelmDeployConfig {
-  const command = parseInput("command").toLowerCase();
-
-  const isPush = command === "push";
-  const isUpgrade = command === "upgrade";
-  const isRemove = command === "remove";
-  return {
-    command,
-
-    // remove and upgrade
-    release: parseInput("release", isRemove || isUpgrade),
-    namespace: parseInput("namespace"),
-    timeout: parseInput("timeout"),
-
-    // upgrade
-    values: parseValues(parseInput("values")),
-    dry: parseInput("dry-run") === "true",
-    atomic: parseInput("atomic") === "true",
-    valueFiles: parseValueFiles(parseInput("value-files")),
-    secrets: parseSecrets(parseInput("secrets")),
-
-    // upgrade and push
-    chart: parseInput("chart", isUpgrade || isPush),
-    chartVersion: parseInput("chart-version"),
-    repo: parseInput("repo", isPush),
-    repoAlias: parseInput("repo-alias"),
-    repoUsername: parseInput("repo-username"),
-    repoPassword: parseInput("repo-password"),
-    dependencies: parseDependencies(parseInput("dependencies")),
-
-    // push
-    appVersion: parseInput("app-version"),
-    chartDir: parseInput("chart-dir"),
-    force: parseInput("force") === "true",
-  };
 }
 
 /**
@@ -173,66 +86,87 @@ async function renderFiles(
   Promise.all(promises);
 }
 
-export interface HelmRepo {
-  repository?: string;
-  alias?: string;
-  username?: string;
-  password?: string;
+const is_defined = function (v?: string) {
+  return v !== undefined && v !== null && v.trim() != "";
+};
+
+function buildRepositoryConfigYaml(repo: HelmRepo): string {
+  // apiVersion: ""
+  // repositories:
+  // - name: fantastic-charts
+  //   url: https://fantastic-charts.storage.googleapis.com
+  //   username: env.FANTASTIC_CHARTS_USERNAME
+  //   password: env.FANTASTIC_CHARTS_PASSWORD
+  return YAML.stringify({
+    apiVersion: "",
+    repositories: [
+      {
+        name: repo.alias,
+        url: repo.url,
+        username: repo.username,
+        password: repo.password,
+      },
+    ],
+  });
 }
 
-/**
- * Helm deployment configuration
- */
-export interface HelmDeployConfig {
-  command: string;
-
-  // remove and upgrade
-  release?: string;
-  namespace?: string;
-  timeout?: string;
-
-  // upgrade
-  values?: string;
-  dry?: boolean;
-  atomic?: boolean;
-  valueFiles?: string[];
-  secrets?: string | object;
-
-  // upgrade and push
-  chart?: string;
-  chartVersion?: string;
-  repo?: string;
-  repoAlias?: string;
-  repoUsername?: string;
-  repoPassword?: string;
-  dependencies?: HelmRepo[];
-
-  // push
-  appVersion?: string;
-  chartDir?: string;
-  force?: boolean;
+function buildRegistryConfigJSON(repo: HelmRepo): string {
+  // {"auths": {
+  //    "https://my.registry": "auth",
+  // }}
+  let auths: { [key: string]: string } = {};
+  if (repo.url) {
+    auths[repo.url] = btoa(`${repo.username}: ${repo.password}`);
+  }
+  return JSON.stringify({ auths });
 }
 
+async function loginHelmRegistry(repo: HelmRepo): Promise<void> {
+  if (!repo.url)
+    throw new Error("required and not supplied: repo / dependency repository");
+  let options: actionExec.ExecOptions = {};
+  let args = [];
+  if (repo.username) {
+    args.push(`--username = ${repo.username}`);
+  }
+  if (repo.password) {
+    options = { ...options, input: Buffer.from(repo.password) };
+    args.push("--password-stdin");
+  }
+
+  if (is_defined(repo.username) && !is_defined(repo.password)) {
+    throw new Error("supplied repo-username but missing repo-password");
+  }
+  if (is_defined(repo.password) && !is_defined(repo.username)) {
+    throw new Error("supplied repo-password but missing repo-username");
+  }
+  await helmExec(["registry", "login", ...args, repo.url], options);
+}
+
+// Note: helm repos often only exist once they contain at least a single chart
+// Hence, if adding the repo fails, try logging into the registry instead
 async function addHelmRepo(repo: HelmRepo): Promise<void> {
-  if (!repo.repository)
+  if (!repo.url)
     throw new Error("required and not supplied: repo / dependency repository");
   if (!repo.alias)
     throw new Error("required and not supplied: repo-alias / dependency alias");
-  const args = ["repo", "add", repo.alias, repo.repository];
-  let supplied_both_or_none = true;
+  let options: actionExec.ExecOptions = {};
+  let args = ["repo", "add"];
   if (repo.username) {
-    supplied_both_or_none = !supplied_both_or_none;
-    args.push(`--username=${repo.username}`);
+    args.push(`--username = ${repo.username}`);
   }
   if (repo.password) {
-    supplied_both_or_none = !supplied_both_or_none;
-    args.push(`--password=${repo.password}`);
+    options = { ...options, input: Buffer.from(repo.password) };
+    args.push("--password-stdin");
   }
-  if (!supplied_both_or_none)
-    throw new Error(
-      "required and not supplied: repo-username or repo-password",
-    );
-  await helmExec(args);
+  args = [...args, repo.alias, repo.url];
+  if (is_defined(repo.username) && !is_defined(repo.password)) {
+    throw new Error("supplied repo-username but missing repo-password");
+  }
+  if (is_defined(repo.password) && !is_defined(repo.username)) {
+    throw new Error("supplied repo-password but missing repo-username");
+  }
+  await helmExec(args, options);
 }
 
 /**
@@ -246,14 +180,7 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
 
   // add the helm repository
   if (conf.repo) {
-    if (!conf.repoAlias) conf.repoAlias = "source-chart-repo";
-    await addHelmRepo({
-      repository: conf.repo,
-      alias: conf.repoAlias,
-      username: conf.repoUsername,
-      password: conf.repoPassword,
-    });
-    await helmExec(["repo", "update"]);
+    await authenticateHelm(conf);
   }
 
   // add dependency repositories
@@ -326,28 +253,63 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   await helmExec(["dependency", "update", chartPath]);
 
   let args = [];
-  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`);
-  if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`);
+  if (conf.chartVersion) args.push(`--version = ${conf.chartVersion}`);
+  if (conf.appVersion) args.push(`--app - version=${conf.appVersion}`);
   await helmExec(["package", chartPath, ...args], { cwd: chartPath });
 
-  args = [];
-  args.push(`--username=${conf.repoUsername}`);
-  args.push(`--password=${conf.repoPassword}`);
-  if (conf.force) args.push("--force");
-  const packaged = await glob(`${chartPath}/${conf.chart}-*.tgz`, {});
+  const packaged = await glob(`${chartPath} / ${conf.chart} -*.tgz`, {});
   if (packaged.length < 1)
     throw new Error(
       "Could not find packaged chart to upload. This might be an internal error.",
     );
-  for (const p of packaged) await helmExec(["push", p, conf.repo, ...args]);
-  // Fix: the container uses root and we need to namually set the chart directory permissions
-  // to something that the following actions can still read and write
-  // const user = await getUserInfo('nobody')
-  // await chownR(path.dirname(chartPath), 65534, 65534);
-  // await chmodR(path.dirname(chartPath), 0o777);
-  const { uid, gid } = await getUserInfo("nobody");
-  await chownr(path.dirname(chartPath), uid, gid);
-  await chmodr(path.dirname(chartPath), 0o777);
+
+  let options: actionExec.ExecOptions = {};
+  args = [];
+  if (conf.force) args.push("--force");
+
+  const repo = getRepoConfig(conf);
+  let registryConfigPath: string | undefined;
+
+  if (repo.username) {
+    // helm push does not support username and password
+    // we create a temporary registry config
+    const registryConfigJSON = buildRegistryConfigJSON(repo);
+    registryConfigPath = await temporaryWrite(registryConfigJSON, {
+      extension: "json",
+    });
+    args.push(`--registry-config=${registryConfigPath}`);
+  }
+
+  // if (conf.repoUsername) {
+  //   args.push(`--username = ${conf.repoUsername}`);
+  // }
+  // if (conf.repoPassword) {
+  //   options = { ...options, input: Buffer.from(conf.repoPassword) };
+  //   args.push("--password-stdin");
+  // }
+
+  for (const p of packaged) {
+    try {
+      await helmExec(["push", p, conf.repo, ...args], options);
+    } catch (err) {
+      if (registryConfigPath) {
+        await unlink(registryConfigPath);
+      }
+      throw err;
+    }
+    // Fix: the container uses root and we need to namually set the chart directory permissions
+    // to something that the following actions can still read and write
+    // const user = await getUserInfo('nobody')
+    // await chownR(path.dirname(chartPath), 65534, 65534);
+    // await chmodR(path.dirname(chartPath), 0o777);
+    const { uid, gid } = await getUserInfo("nobody");
+    await chownr(path.dirname(chartPath), uid, gid);
+    await chmodr(path.dirname(chartPath), 0o777);
+  }
+
+  if (registryConfigPath) {
+    await unlink(registryConfigPath);
+  }
 }
 
 /**
@@ -372,15 +334,15 @@ async function helmUpgrade(
   if (!conf.chart) throw new Error("required and not supplied: chart");
   if (!conf.namespace) conf.namespace = "default";
   if (conf.dry) args.push("--dry-run");
-  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`);
-  if (conf.timeout) args.push(`--timeout=${conf.timeout}`);
+  if (conf.chartVersion) args.push(`--version = ${conf.chartVersion}`);
+  if (conf.timeout) args.push(`--timeout = ${conf.timeout}`);
   if (conf.atomic) args.push("--atomic");
   if (conf.valueFiles)
     for (const f of conf.valueFiles) {
-      args.push(`--values=${f}`);
+      args.push(`--values = ${f}`);
     }
   if (conf.values && conf.values.length > 0)
-    args.push(`--values=${valuesFile}`);
+    args.push(`--values = ${valuesFile}`);
   await helmExec([
     "upgrade",
     "-n",
@@ -398,5 +360,15 @@ async function helmUpgrade(
  * Parse the action's config and start the deployment
  */
 export async function run(): Promise<void> {
-  await deployHelmChart(parseConfig());
+  const conf = await parseConfig();
+  if (conf.command === "login") {
+    // const repo = parseInput("repo", isPush);
+    // let repoAlias = parseInput("repo-alias");
+    // const repoUsername = parseInput("repo-username");
+    // const repoPassword = parseInput("repo-password");
+    if (conf.repo) {
+      authenticateHelm(conf);
+    }
+  }
+  await deployHelmChart(conf);
 }

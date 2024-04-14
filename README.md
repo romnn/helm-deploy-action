@@ -46,6 +46,13 @@ The following syntax allows variables to be used in value files:
 
 #### Testing
 
+You can run the action locally.
+Action input parameters can be passed as environment variables with the `INPUT_` prefix.
+
+```bash
+env 'INPUT_COMMAND="push"' 'INPUT_REPO-USERNAME="test"' yarn run run
+```
+
 Tests are run as part of the actions CI pipeline and can be run locally using [act](https://github.com/nektos/act):
 
 ```bash

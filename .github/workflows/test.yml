@@ -12,9 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t helm-deploy-action .
-      - name: check helm version
+      - name: Check helm version
         run: docker run --entrypoint helm helm-deploy-action version
-      - name: check helm push plugin
+      - name: Check helm push plugin
         run: docker run --entrypoint helm helm-deploy-action push --help
   integration-tests:
     runs-on: ubuntu-latest
@@ -33,7 +33,7 @@ jobs:
           export KUBECONFIG_FILE=$(cat $HOME/.kube/config)
           echo $KUBECONFIG_FILE
           echo "::set-output name=config::${KUBECONFIG_FILE}"
-      - name: deploy drone
+      - name: Deploy drone
         uses: ./
         with:
           release: drone-release
@@ -42,7 +42,7 @@ jobs:
           repo-alias: stable
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
-      - name: deploy couchdb
+      - name: Deploy couchdb
         uses: ./
         with:
           release: drone-release
@@ -51,7 +51,7 @@ jobs:
           repo-alias: "stable"
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
-      - name: create default2 namespace
+      - name: Create default2 namespace
         run: kubectl create namespace default2
       - name: Deploy envoy
         uses: ./
@@ -63,14 +63,14 @@ jobs:
           namespace: default2
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
-      - name: remove drone deployment
+      - name: Remove drone deployment
         uses: ./
         with:
           command: remove
           release: drone-release
         env:
           KUBECONFIG_FILE: ${{ steps.minikube.outputs.config }}
-      - name: remove envoy deployment
+      - name: Remove envoy deployment
         uses: ./
         with:
           command: remove

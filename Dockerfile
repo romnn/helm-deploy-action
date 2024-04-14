@@ -19,6 +19,7 @@ LABEL maintainer="romnn <contact@romnn.com>" \
 
 # unfortunately, cannot upgrade helm and the push plugin due to conflicts
 ENV HELM_VERSION v3.14.4
+ENV HELM_PLUGIN_REPO https://github.com/chartmuseum/helm-push.git
 ENV HELM_PLUGIN_PUSH_VERSION v0.10.4
 
 RUN mkdir -p /action-data/helm
@@ -34,7 +35,8 @@ RUN set -ex \
     && rm -rf linux-amd64 
 
 RUN apk add --virtual .helm-build-deps git make \
-    && helm plugin install https://github.com/chartmuseum/helm-push.git --version ${HELM_PLUGIN_PUSH_VERSION} \
+    # helm has a builtin push command now
+    # && helm plugin install ${HELM_PLUGIN_REPO} --version ${HELM_PLUGIN_PUSH_VERSION} \
     && apk del --purge .helm-build-deps
 
 WORKDIR /action-data

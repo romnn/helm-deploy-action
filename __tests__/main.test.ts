@@ -1,12 +1,6 @@
 import memfs from "metro-memory-fs";
-import * as core from "@actions/core";
-import * as exec from "@actions/exec";
-import * as cp from "child_process";
-import * as path from "path";
-import * as process from "process";
-import * as fs from "fs";
 
-import { run, HelmDeployConfig } from "../src/deploy";
+import { run } from "../src/deploy";
 import { withMockedExec, getUserInfo, args, MockExec } from "../src/utils";
 
 jest.mock("fs", () => {

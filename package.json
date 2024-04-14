@@ -5,6 +5,7 @@
   "main": "lib/main.js",
   "scripts": {
     "build": "tsc",
+    "run": "ts-node src/main.ts",
     "format": "prettier --write **/*.ts",
     "format-check": "prettier --check **/*.ts",
     "package": "ncc build --source-map --license licenses.txt",
@@ -36,7 +37,9 @@
     "chmodr": "^1.2.0",
     "chownr": "^3.0.0",
     "glob": "^10.3.12",
-    "mustache": "^4.1.0"
+    "mustache": "^4.1.0",
+    "tempy": "^3.1.0",
+    "yaml": "^2.4.1"
   },
   "devDependencies": {
     "@types/chmodr": "^1.0.0",
@@ -52,6 +55,7 @@
     "metro-memory-fs": "^0.80.8",
     "prettier": "3.2.5",
     "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   }
 }
