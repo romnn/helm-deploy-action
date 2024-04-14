@@ -7,7 +7,7 @@ import * as process from "process";
 import * as fs from "fs";
 
 import { run, HelmDeployConfig } from "../src/deploy";
-import { withMockedExec, args, MockExec } from "../src/utils";
+import { withMockedExec, getUserInfo, args, MockExec } from "../src/utils";
 
 jest.mock("fs", () => {
   return new memfs({ cwd: () => "/tmp" });
@@ -32,6 +32,12 @@ const secrets = "secrets";
 const dependencies = "dependencies";
 const helmTimeout = "timeout";
 const force = "force";
+
+test("test_get_user_info", async () => {
+  const { uid, gid } = await getUserInfo("nobody");
+  expect(!Number.isNaN(uid));
+  expect(!Number.isNaN(gid));
+});
 
 test("test_valid_remove", async () => {
   const conf = {

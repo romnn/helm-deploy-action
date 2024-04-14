@@ -1,27 +1,32 @@
 import * as fs from "fs";
 import * as core from "@actions/core";
-import * as exec from "@actions/exec";
+import * as actionExec from "@actions/exec";
 import * as path from "path";
+import * as util from "util";
 import * as cp from "child_process";
-// import { RequestError } from "@octokit/request-error";
-import chmodr from "chmodr";
-import { chownr } from "chownr";
+import realChmodr from "chmodr";
+
+export const execFile = util.promisify(cp.execFile);
+export const exec = util.promisify(cp.exec);
 
 interface Dict<T> {
   [key: string]: T;
 }
 
-export type MockExec = jest.SpiedFunction<typeof exec.exec>;
+export type MockExec = jest.SpiedFunction<typeof actionExec.exec>;
 export type ExecCallArgs = [
   cmd: string,
   args?: string[] | undefined,
-  options?: exec.ExecOptions | undefined,
+  options?: actionExec.ExecOptions | undefined,
 ];
 
 export type ProcessEnv = Dict<string | undefined>;
 
 export type DirectoryItems = Dict<DirectoryItems | string>;
 
+/**
+ * Flatten dictionary by concatenating keys using a given separator
+ */
 export function reduceNested(
   ob: DirectoryItems,
   separator = ".",
@@ -42,6 +47,9 @@ export function reduceNested(
   return ans;
 }
 
+/**
+ * Make dirs recursively
+ */
 async function mkdirs(dir: string): Promise<void> {
   const sep = "/";
   const segments = dir.split(sep);
@@ -58,29 +66,147 @@ async function mkdirs(dir: string): Promise<void> {
   }
 }
 
-export async function chownR(
+async function chown(dir: string, owner: number, group: number): Promise<void> {
+  try {
+    /* console.log('changing', dir) */
+    await fs.promises.chown(dir, owner, group);
+  } catch (err: any) {
+    if ("code" in err && err.code == "ENOENT") {
+      // ignore chown of missing file
+    } else {
+      throw err;
+    }
+  }
+}
+
+const chownImpl: (
+  dir: string,
+  uid: number,
+  gid: number,
+) => Promise<void> | undefined = fs.promises.lchown
+  ? fs.promises.lchown
+  : fs.promises.chown;
+
+async function lchown(
   dir: string,
   owner: number,
   group: number,
 ): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    chownr(dir, owner, group, (err: any) => {
-      if (err) {
-        reject(
-          new Error(
-            `failed to change owner and group for ${path}: ${err.message}`,
-          ),
-        );
-      } else {
-        resolve();
-      }
-    });
-  });
+  try {
+    /* console.log('changing', dir) */
+    if (chownImpl) await chownImpl(dir, owner, group);
+  } catch (err: any) {
+    if ("code" in err && err.code == "ENOENT") {
+      // ignore chown of missing file
+    } else {
+      throw err;
+    }
+  }
 }
 
-export async function chmodR(dir: string, mode: number): Promise<void> {
+// has lchown and runs on v10.6 or above
+const needEISDIRHandled =
+  fs.promises.lchown !== undefined &&
+  !process.version.match(/v1[1-9]+\./) &&
+  !process.version.match(/v10\.[6-9]/);
+
+async function handleEISDir(
+  dir: string,
+  owner: number,
+  group: number,
+): Promise<void> {
+  if (needEISDIRHandled) {
+    // Node prior to v10 had a very questionable implementation of
+    // fs.lchown, which would always try to call fs.open on a directory
+    // Fall back to fs.chown in those cases.
+    try {
+      return await lchown(dir, owner, group);
+    } catch (err: any) {
+      if ("code" in err && err.code == "EISDIR") {
+        // ignore is dir already
+      } else {
+        throw err;
+      }
+      await chown(dir, owner, group);
+    }
+  } else {
+    await lchown(dir, owner, group);
+  }
+}
+
+export async function chownrChild(
+  parent: string,
+  child: fs.Dirent | string,
+  owner: number,
+  group: number,
+): Promise<void> {
+  let childDirent: fs.Dirent;
+
+  if (typeof child === "string") {
+    try {
+      const childPath = path.resolve(parent, child);
+      const childStat = await fs.promises.lstat(childPath);
+      childDirent = { ...childStat, name: child, path: childPath };
+    } catch (err: any) {
+      if ("code" in err && err.code === "ENOENT") {
+        return;
+      } else {
+        throw err;
+      }
+    }
+  } else {
+    childDirent = child;
+  }
+
+  if (childDirent.isDirectory())
+    await chownr(path.resolve(parent, childDirent.name), owner, group);
+
+  return await handleEISDir(
+    path.resolve(parent, childDirent.name),
+    owner,
+    group,
+  );
+}
+
+/**
+ * Change owner recursively
+ */
+export async function chownr(
+  dir: string,
+  owner: number,
+  group: number,
+): Promise<void> {
+  let children;
+  try {
+    children = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch (err: any) {
+    if ("code" in err && err.code === "ENOENT") {
+      return;
+    } else if (
+      "code" in err &&
+      err.code !== "ENOTDIR" &&
+      err.code !== "ENOTSUP"
+    ) {
+      return await handleEISDir(dir, owner, group);
+    } else {
+      throw err;
+    }
+  }
+
+  if (children && children.length)
+    for (const child of children) {
+      await chownrChild(dir, child, owner, group);
+    }
+
+  return await handleEISDir(dir, owner, group);
+}
+
+/**
+ * change mod recursively
+ */
+export async function chmodr(dir: string, mode: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    chmodr(dir, mode, (err) => {
+    realChmodr(dir, mode, (err) => {
       if (err) {
         reject(
           new Error(`failed to set permissions for ${path}: ${err.message}`),
@@ -92,6 +218,57 @@ export async function chmodR(dir: string, mode: number): Promise<void> {
   });
 }
 
+/**
+ * Execute a helm command
+ */
+export async function helmExec(
+  helmArgs: string[],
+  options?: actionExec.ExecOptions,
+): Promise<void> {
+  await actionExec.exec("helm", helmArgs, options);
+}
+
+/**
+ * Execute a command and capture stdout and stderr
+ */
+export async function execWithOutput(
+  executable: string,
+  cmdArgs: string[],
+  options?: actionExec.ExecOptions,
+): Promise<{ stdout: string; stderr: string }> {
+  let stdout = "";
+  let stderr = "";
+  await actionExec.exec(executable, cmdArgs, {
+    ...options,
+    ...{
+      listeners: {
+        stdout: (data: Buffer) => {
+          stdout += data.toString();
+        },
+        stderr: (data: Buffer) => {
+          stderr += data.toString();
+        },
+      },
+    },
+  });
+  return { stdout, stderr };
+}
+
+/**
+ * Get uid and gid of user
+ */
+export async function getUserInfo(
+  username: string,
+): Promise<{ uid: number; gid: number }> {
+  const uid = parseInt((await execFile("id", ["-u", username])).stdout);
+  const gid = parseInt((await execFile("id", ["-g", username])).stdout);
+  return { uid, gid };
+}
+
+/**
+ * Context manager that can be used to run test with mocked calls to actionExec.exec,
+ * a mocked in memory filesystem and patched getInput
+ */
 export async function withMockedExec(
   conf: Dict<string>,
   files: DirectoryItems,
@@ -113,7 +290,7 @@ export async function withMockedExec(
   }
   try {
     const mockGetInput = jest.spyOn(core, "getInput");
-    const mockExec = jest.spyOn(exec, "exec");
+    const mockExec = jest.spyOn(actionExec, "exec");
     mockExec.mockImplementation(async () => 0);
     mockGetInput.mockImplementation(
       (key: string, options?: core.InputOptions): string => {
@@ -135,6 +312,9 @@ export async function withMockedExec(
   }
 }
 
+/**
+ * Run the transpiled action as a subprocess
+ */
 export async function runAction(
   conf: object,
   callback: (output: string) => Promise<void>,
@@ -151,7 +331,8 @@ export async function runAction(
     /* stdio: 'inherit' */
   };
   try {
-    return await callback(cp.execFileSync(np, [ip], options)?.toString());
+    const { stdout } = await execFile(np, [ip], options);
+    return await callback(stdout);
   } catch (err: unknown) {
     if (err instanceof Error) {
       throw new Error(`failed to run the action distributable: ${err.message}`);
@@ -161,6 +342,9 @@ export async function runAction(
   }
 }
 
+/**
+ * Extract executable and arguments of a call to actionExec.exec
+ */
 export function args(calls: ExecCallArgs[]): string[][] {
   return calls.map((call) => [call[0], ...(call[1] ?? [])]);
 }
