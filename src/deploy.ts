@@ -86,7 +86,7 @@ async function renderFiles(
   Promise.all(promises);
 }
 
-const is_defined = function (v?: string) {
+const is_defined = function(v?: string) {
   return v !== undefined && v !== null && v.trim() != "";
 };
 
@@ -124,22 +124,23 @@ function buildRegistryConfigJSON(repo: HelmRepo): string {
 async function loginHelmRegistry(repo: HelmRepo): Promise<void> {
   if (!repo.url)
     throw new Error("required and not supplied: repo / dependency repository");
-  let options: actionExec.ExecOptions = {};
-  let args = [];
-  if (repo.username) {
-    args.push(`--username = ${repo.username}`);
-  }
-  if (repo.password) {
-    options = { ...options, input: Buffer.from(repo.password) };
-    args.push("--password-stdin");
-  }
-
   if (is_defined(repo.username) && !is_defined(repo.password)) {
     throw new Error("supplied repo-username but missing repo-password");
   }
   if (is_defined(repo.password) && !is_defined(repo.username)) {
     throw new Error("supplied repo-password but missing repo-username");
   }
+
+  let options: actionExec.ExecOptions = {};
+  let args: string[] = [];
+  if (repo.username) {
+    args.push(`--username=${repo.username}`);
+  }
+  if (repo.password) {
+    options = { ...options, input: Buffer.from(repo.password) };
+    args.push("--password-stdin");
+  }
+
   await helmExec(["registry", "login", ...args, repo.url], options);
 }
 
@@ -150,23 +151,23 @@ async function addHelmRepo(repo: HelmRepo): Promise<void> {
     throw new Error("required and not supplied: repo / dependency repository");
   if (!repo.alias)
     throw new Error("required and not supplied: repo-alias / dependency alias");
-  let options: actionExec.ExecOptions = {};
-  let args = ["repo", "add"];
-  if (repo.username) {
-    args.push(`--username = ${repo.username}`);
-  }
-  if (repo.password) {
-    options = { ...options, input: Buffer.from(repo.password) };
-    args.push("--password-stdin");
-  }
-  args = [...args, repo.alias, repo.url];
   if (is_defined(repo.username) && !is_defined(repo.password)) {
     throw new Error("supplied repo-username but missing repo-password");
   }
   if (is_defined(repo.password) && !is_defined(repo.username)) {
     throw new Error("supplied repo-password but missing repo-username");
   }
-  await helmExec(args, options);
+
+  let options: actionExec.ExecOptions = {};
+  let args: string[] = [];
+  if (repo.username) {
+    args.push(`--username=${repo.username}`);
+  }
+  if (repo.password) {
+    options = { ...options, input: Buffer.from(repo.password) };
+    args.push("--password-stdin");
+  }
+  await helmExec(["repo", "add", ...args, repo.alias, repo.url], options);
 }
 
 /**
@@ -252,10 +253,10 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
 
   await helmExec(["dependency", "update", chartPath]);
 
-  let args = [];
-  if (conf.chartVersion) args.push(`--version = ${conf.chartVersion}`);
-  if (conf.appVersion) args.push(`--app - version=${conf.appVersion}`);
-  await helmExec(["package", chartPath, ...args], { cwd: chartPath });
+  let args: string[] = [];
+  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`);
+  if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`);
+  await helmExec(["package", ...args, chartPath], { cwd: chartPath });
 
   const packaged = await glob(`${chartPath} / ${conf.chart} -*.tgz`, {});
   if (packaged.length < 1)
@@ -329,20 +330,20 @@ async function helmUpgrade(
   conf: HelmDeployConfig,
   valuesFile: string,
 ): Promise<void> {
-  const args = [];
+  let args: string[] = [];
   if (!conf.release) throw new Error("required and not supplied: release");
   if (!conf.chart) throw new Error("required and not supplied: chart");
   if (!conf.namespace) conf.namespace = "default";
   if (conf.dry) args.push("--dry-run");
-  if (conf.chartVersion) args.push(`--version = ${conf.chartVersion}`);
-  if (conf.timeout) args.push(`--timeout = ${conf.timeout}`);
+  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`);
+  if (conf.timeout) args.push(`--timeout=${conf.timeout}`);
   if (conf.atomic) args.push("--atomic");
   if (conf.valueFiles)
     for (const f of conf.valueFiles) {
-      args.push(`--values = ${f}`);
+      args.push(`--values=${f}`);
     }
   if (conf.values && conf.values.length > 0)
-    args.push(`--values = ${valuesFile}`);
+    args.push(`--values=${valuesFile}`);
   await helmExec([
     "upgrade",
     "-n",
