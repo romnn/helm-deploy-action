@@ -5,8 +5,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm install
-      - run: npm run all
+      - run: yarn install
+      - run: yarn run all
   test-container:
     runs-on: ubuntu-latest
     steps:

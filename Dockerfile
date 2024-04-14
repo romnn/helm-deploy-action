@@ -6,9 +6,9 @@ COPY package*.json /action/
 COPY tsconfig.json /action/
 COPY src /action/src
 
-RUN npm install
-RUN npm run build
-RUN npm run package
+RUN yarn install
+RUN yarn run build
+RUN yarn run package
 
 FROM alpine:latest
 
