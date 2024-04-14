@@ -14,12 +14,12 @@ FROM alpine:latest
 
 LABEL maintainer="romnn <contact@romnn.com>" \
   org.label-schema.name="helm deploy action" \
-  org.label-schema.vendor="romnnn" \
+  org.label-schema.vendor="romnn" \
   org.label-schema.schema-version="1.0"
 
 # unfortunately, cannot upgrade helm and the push plugin due to conflicts
-ENV HELM_VERSION v3.3.1
-ENV HELM_PLUGIN_PUSH_VERSION v0.9.0
+ENV HELM_VERSION v3.14.4
+ENV HELM_PLUGIN_PUSH_VERSION v0.10.4
 
 RUN mkdir -p /action-data/helm
 ENV XDG_DATA_HOME=/action-data/helm
