@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as YAML from 'yaml'
 import { glob } from 'glob'
+import tmp from 'tmp'
 import { default as Mustache } from 'mustache'
 import {
   parseConfig,
@@ -13,11 +14,6 @@ import {
   getRepoConfig
 } from './config'
 import { chownr, chmodr, helmExec, getUserInfo } from './utils'
-
-// import tempfile from "tempfile";
-// import tempfile = require("tempfile");
-// const tempfile = import("tempfile");
-import tmp from 'tmp'
 
 tmp.setGracefulCleanup()
 
@@ -60,8 +56,7 @@ export async function status(
       deployment_id: deployment.id,
       state,
       log_url: url,
-      target_url: url,
-      headers: { accept: 'application/vnd.github.ant-man-preview+json' }
+      target_url: url
     })
   } catch (error: unknown) {
     if (error instanceof Error) {
@@ -262,7 +257,7 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
   if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`)
   await helmExec(['package', ...args, chartPath], { cwd: chartPath })
 
-  const packaged = await glob(`${chartPath} / ${conf.chart} -*.tgz`, {})
+  const packaged = await glob(`${chartPath}/${conf.chart}-*.tgz`, {})
   if (packaged.length < 1)
     throw new Error(
       'Could not find packaged chart to upload. This might be an internal error.'
