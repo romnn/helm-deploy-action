@@ -1,7 +1,7 @@
-declare module "metro-memory-fs" {
+declare module 'metro-memory-fs' {
   class MemoryFs {
-    constructor(options?: { cwd?: () => string });
-    reset(): void;
+    constructor(options?: { cwd?: () => string })
+    reset(): void
   }
-  export = MemoryFs;
+  export = MemoryFs
 }

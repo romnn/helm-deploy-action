@@ -1,30 +1,33 @@
-import * as core from "@actions/core";
-import * as github from "@actions/github";
-import * as actionExec from "@actions/exec";
-import * as fs from "fs";
-import * as path from "path";
-import * as util from "util";
-import * as YAML from "yaml";
-import { glob } from "glob";
-import { temporaryWrite } from "tempy";
-import * as Mustache from "mustache";
+import * as core from '@actions/core'
+import * as github from '@actions/github'
+import * as actionExec from '@actions/exec'
+import * as fs from 'fs'
+import * as path from 'path'
+import * as YAML from 'yaml'
+import { glob } from 'glob'
+import { default as Mustache } from 'mustache'
 import {
   parseConfig,
   HelmRepo,
   HelmDeployConfig,
-  getRepoConfig,
-} from "./config";
-import { chownr, chmodr, helmExec, getUserInfo } from "./utils";
+  getRepoConfig
+} from './config'
+import { chownr, chmodr, helmExec, getUserInfo } from './utils'
 
-export const unlink = util.promisify(fs.unlink);
+// import tempfile from "tempfile";
+// import tempfile = require("tempfile");
+// const tempfile = import("tempfile");
+import tmp from 'tmp'
+
+tmp.setGracefulCleanup()
 
 async function authenticateHelm(conf: HelmDeployConfig): Promise<void> {
-  const repo = getRepoConfig(conf);
+  const repo = getRepoConfig(conf)
   try {
-    await addHelmRepo(repo);
-    await helmExec(["repo", "update"]);
+    await addHelmRepo(repo)
+    await helmExec(['repo', 'update'])
   } catch (err) {
-    await loginHelmRegistry(repo);
+    await loginHelmRegistry(repo)
   }
 }
 
@@ -33,24 +36,24 @@ async function authenticateHelm(conf: HelmDeployConfig): Promise<void> {
  */
 export async function status(
   state:
-    | "inactive"
-    | "error"
-    | "pending"
-    | "success"
-    | "queued"
-    | "in_progress"
-    | "failure",
+    | 'inactive'
+    | 'error'
+    | 'pending'
+    | 'success'
+    | 'queued'
+    | 'in_progress'
+    | 'failure'
 ): Promise<void> {
   try {
-    const context = github.context;
-    const deployment = context.payload.deployment;
-    const token = core.getInput("github-token");
+    const context = github.context
+    const deployment = context.payload.deployment
+    const token = core.getInput('github-token')
     if (!token || !deployment) {
-      return;
+      return
     }
 
-    const client = github.getOctokit(token);
-    const url = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${context.sha}/checks`;
+    const client = github.getOctokit(token)
+    const url = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${context.sha}/checks`
 
     await client.rest.repos.createDeploymentStatus({
       ...context.repo,
@@ -58,13 +61,13 @@ export async function status(
       state,
       log_url: url,
       target_url: url,
-      headers: { accept: "application/vnd.github.ant-man-preview+json" },
-    });
+      headers: { accept: 'application/vnd.github.ant-man-preview+json' }
+    })
   } catch (error: unknown) {
     if (error instanceof Error) {
-      core.warning(`failed to set deployment status: ${error.message}`);
+      core.warning(`failed to set deployment status: ${error.message}`)
     } else {
-      core.warning("failed to set deployment status");
+      core.warning('failed to set deployment status')
     }
   }
 }
@@ -75,21 +78,22 @@ export async function status(
  */
 async function renderFiles(
   files: string[],
-  data: { secrets: object | string; deployment: string[] },
+  data: { secrets: object | string; deployment: string[] }
 ): Promise<void> {
-  const tags: [string, string] = ["${{", "}}"];
+  const tags: [string, string] = ['${{', '}}']
   const promises = files.map(async (file: string) => {
-    const content = await fs.promises.readFile(file, { encoding: "utf8" });
-    const rendered = Mustache.render(content, data, {}, tags);
-    await fs.promises.writeFile(file, rendered, { mode: 0o777 });
-  });
-  Promise.all(promises);
+    const content = await fs.promises.readFile(file, { encoding: 'utf8' })
+    const rendered = Mustache.render(content, data, {}, tags)
+    await fs.promises.writeFile(file, rendered, { mode: 0o777 })
+  })
+  Promise.all(promises)
 }
 
-const is_defined = function(v?: string) {
-  return v !== undefined && v !== null && v.trim() != "";
-};
+const is_defined = function(v?: string): boolean {
+  return v !== undefined && v !== null && v.trim() !== ''
+}
 
+/* eslint-disable-next-line: no-unused-vars */
 function buildRepositoryConfigYaml(repo: HelmRepo): string {
   // apiVersion: ""
   // repositories:
@@ -98,86 +102,86 @@ function buildRepositoryConfigYaml(repo: HelmRepo): string {
   //   username: env.FANTASTIC_CHARTS_USERNAME
   //   password: env.FANTASTIC_CHARTS_PASSWORD
   return YAML.stringify({
-    apiVersion: "",
+    apiVersion: '',
     repositories: [
       {
         name: repo.alias,
         url: repo.url,
         username: repo.username,
-        password: repo.password,
-      },
-    ],
-  });
+        password: repo.password
+      }
+    ]
+  })
 }
 
 function buildRegistryConfigJSON(repo: HelmRepo): string {
   // {"auths": {
   //    "https://my.registry": "auth",
   // }}
-  let auths: { [key: string]: string } = {};
+  const auths: { [key: string]: string } = {}
   if (repo.url) {
-    auths[repo.url] = btoa(`${repo.username}: ${repo.password}`);
+    auths[repo.url] = btoa(`${repo.username}: ${repo.password}`)
   }
-  return JSON.stringify({ auths });
+  return JSON.stringify({ auths })
 }
 
 async function loginHelmRegistry(repo: HelmRepo): Promise<void> {
   if (!repo.url)
-    throw new Error("required and not supplied: repo / dependency repository");
+    throw new Error('required and not supplied: repo / dependency repository')
   if (is_defined(repo.username) && !is_defined(repo.password)) {
-    throw new Error("supplied repo-username but missing repo-password");
+    throw new Error('supplied repo-username but missing repo-password')
   }
   if (is_defined(repo.password) && !is_defined(repo.username)) {
-    throw new Error("supplied repo-password but missing repo-username");
+    throw new Error('supplied repo-password but missing repo-username')
   }
 
-  let options: actionExec.ExecOptions = {};
-  let args: string[] = [];
+  let options: actionExec.ExecOptions = {}
+  const args: string[] = []
   if (repo.username) {
-    args.push(`--username=${repo.username}`);
+    args.push(`--username=${repo.username}`)
   }
   if (repo.password) {
-    options = { ...options, input: Buffer.from(repo.password) };
-    args.push("--password-stdin");
+    options = { ...options, input: Buffer.from(repo.password) }
+    args.push('--password-stdin')
   }
 
-  await helmExec(["registry", "login", ...args, repo.url], options);
+  await helmExec(['registry', 'login', ...args, repo.url], options)
 }
 
 // Note: helm repos often only exist once they contain at least a single chart
 // Hence, if adding the repo fails, try logging into the registry instead
 async function addHelmRepo(repo: HelmRepo): Promise<void> {
   if (!repo.url)
-    throw new Error("required and not supplied: repo / dependency repository");
+    throw new Error('required and not supplied: repo / dependency repository')
   if (!repo.alias)
-    throw new Error("required and not supplied: repo-alias / dependency alias");
+    throw new Error('required and not supplied: repo-alias / dependency alias')
   if (is_defined(repo.username) && !is_defined(repo.password)) {
-    throw new Error("supplied repo-username but missing repo-password");
+    throw new Error('supplied repo-username but missing repo-password')
   }
   if (is_defined(repo.password) && !is_defined(repo.username)) {
-    throw new Error("supplied repo-password but missing repo-username");
+    throw new Error('supplied repo-password but missing repo-username')
   }
 
-  let options: actionExec.ExecOptions = {};
-  let args: string[] = [];
+  let options: actionExec.ExecOptions = {}
+  const args: string[] = []
   if (repo.username) {
-    args.push(`--username=${repo.username}`);
+    args.push(`--username=${repo.username}`)
   }
   if (repo.password) {
-    options = { ...options, input: Buffer.from(repo.password) };
-    args.push("--password-stdin");
+    options = { ...options, input: Buffer.from(repo.password) }
+    args.push('--password-stdin')
   }
-  await helmExec(["repo", "add", ...args, repo.alias, repo.url], options);
+  await helmExec(['repo', 'add', ...args, repo.alias, repo.url], options)
 }
 
 /**
  * Deploy or remove a helm chart
  */
 async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
-  const context = github.context;
-  await status("pending");
+  const context = github.context
+  await status('pending')
 
-  if (!conf.command) throw new Error("required and not supplied: command");
+  if (!conf.command) throw new Error('required and not supplied: command')
 
   // add the helm repository
   if (conf.repo) {
@@ -187,51 +191,51 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
   // add dependency repositories
   if (conf.dependencies && conf.dependencies.length > 0) {
     for (const dep of conf.dependencies) {
-      await addHelmRepo(dep);
+      await addHelmRepo(dep)
     }
-    await helmExec(["repo", "update"]);
+    await helmExec(['repo', 'update'])
   }
 
   // prepare values override file
   const valuesFile = path.join(
-    process.env.DEPLOY_ACTION_DATA_HOME ?? ".",
-    "values.yml",
-  );
+    process.env.DEPLOY_ACTION_DATA_HOME ?? '.',
+    'values.yml'
+  )
   if (conf.values && conf.values.length > 0)
-    await fs.promises.writeFile(valuesFile, conf.values, { mode: 0o777 });
+    await fs.promises.writeFile(valuesFile, conf.values, { mode: 0o777 })
 
   // prepare kubeconfig file
   if (process.env.KUBECONFIG_FILE) {
     process.env.KUBECONFIG = path.join(
-      process.env.DEPLOY_ACTION_DATA_HOME ?? ".",
-      "kubeconfig.yml",
-    );
+      process.env.DEPLOY_ACTION_DATA_HOME ?? '.',
+      'kubeconfig.yml'
+    )
     await fs.promises.writeFile(
       process.env.KUBECONFIG,
       process.env.KUBECONFIG_FILE,
-      { mode: 0o777 },
-    );
+      { mode: 0o777 }
+    )
   }
 
   // render value files using github variables
   if (conf.valueFiles)
     await renderFiles(conf.valueFiles.concat([valuesFile]), {
       secrets: conf.secrets ?? {},
-      deployment: context.payload.deployment,
-    });
+      deployment: context.payload.deployment
+    })
 
   switch (conf.command) {
-    case "remove":
-      await helmRemove(conf);
-      break;
-    case "push":
-      await helmPush(conf);
-      break;
-    case "upgrade":
-      await helmUpgrade(conf, valuesFile);
-      break;
+    case 'remove':
+      await helmRemove(conf)
+      break
+    case 'push':
+      await helmPush(conf)
+      break
+    case 'upgrade':
+      await helmUpgrade(conf, valuesFile)
+      break
     default:
-      throw new Error(`unkown helm command: ${conf.command}`);
+      throw new Error(`unkown helm command: ${conf.command}`)
   }
 }
 
@@ -239,46 +243,54 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
  * Push a helm chart to a helm repository
  */
 async function helmPush(conf: HelmDeployConfig): Promise<void> {
-  if (!conf.chart) throw new Error("required and not supplied: chart");
-  if (!conf.repo) throw new Error("required and not supplied: repo");
+  if (!conf.chart) throw new Error('required and not supplied: chart')
+  if (!conf.repo) throw new Error('required and not supplied: repo')
   if (!conf.repoUsername)
-    throw new Error("required and not supplied: repo-username");
+    throw new Error('required and not supplied: repo-username')
   if (!conf.repoPassword)
-    throw new Error("required and not supplied: repo-password");
+    throw new Error('required and not supplied: repo-password')
 
   const chartPath = await fs.promises.realpath(
-    path.join(conf.chartDir ?? ".", conf.chart),
-  );
-  await helmExec(["inspect", "chart", chartPath]);
+    path.join(conf.chartDir ?? '.', conf.chart)
+  )
+  await helmExec(['inspect', 'chart', chartPath])
 
-  await helmExec(["dependency", "update", chartPath]);
+  await helmExec(['dependency', 'update', chartPath])
 
-  let args: string[] = [];
-  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`);
-  if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`);
-  await helmExec(["package", ...args, chartPath], { cwd: chartPath });
+  let args: string[] = []
+  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
+  if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`)
+  await helmExec(['package', ...args, chartPath], { cwd: chartPath })
 
-  const packaged = await glob(`${chartPath} / ${conf.chart} -*.tgz`, {});
+  const packaged = await glob(`${chartPath} / ${conf.chart} -*.tgz`, {})
   if (packaged.length < 1)
     throw new Error(
-      "Could not find packaged chart to upload. This might be an internal error.",
-    );
+      'Could not find packaged chart to upload. This might be an internal error.'
+    )
 
-  let options: actionExec.ExecOptions = {};
-  args = [];
-  if (conf.force) args.push("--force");
+  const options: actionExec.ExecOptions = {}
+  args = []
+  if (conf.force) args.push('--force')
 
-  const repo = getRepoConfig(conf);
-  let registryConfigPath: string | undefined;
+  const repo = getRepoConfig(conf)
+  let registryConfigFile: tmp.FileResult | undefined
 
   if (repo.username) {
     // helm push does not support username and password
     // we create a temporary registry config
-    const registryConfigJSON = buildRegistryConfigJSON(repo);
-    registryConfigPath = await temporaryWrite(registryConfigJSON, {
-      extension: "json",
-    });
-    args.push(`--registry-config=${registryConfigPath}`);
+    const registryConfigJSON = buildRegistryConfigJSON(repo)
+
+    registryConfigFile = tmp.fileSync()
+
+    // const registryConfigPath = tempfile({ extension: "json" });
+    // await fs.promises.writeFile(registryConfigPath, registryConfigJSON, {
+    await fs.promises.writeFile(registryConfigFile.name, registryConfigJSON, {
+      mode: 0o777
+    })
+    // await temporaryWrite(registryConfigJSON, {
+    //   extension: "json",
+    // });
+    args.push(`--registry-config=${registryConfigFile.name}`)
   }
 
   // if (conf.repoUsername) {
@@ -291,25 +303,27 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
 
   for (const p of packaged) {
     try {
-      await helmExec(["push", p, conf.repo, ...args], options);
+      await helmExec(['push', p, conf.repo, ...args], options)
     } catch (err) {
-      if (registryConfigPath) {
-        await unlink(registryConfigPath);
+      if (registryConfigFile) {
+        registryConfigFile.removeCallback()
+        // await fs.promises.unlink(registryConfigPath);
       }
-      throw err;
+      throw err
     }
     // Fix: the container uses root and we need to namually set the chart directory permissions
     // to something that the following actions can still read and write
     // const user = await getUserInfo('nobody')
     // await chownR(path.dirname(chartPath), 65534, 65534);
     // await chmodR(path.dirname(chartPath), 0o777);
-    const { uid, gid } = await getUserInfo("nobody");
-    await chownr(path.dirname(chartPath), uid, gid);
-    await chmodr(path.dirname(chartPath), 0o777);
+    const { uid, gid } = await getUserInfo('nobody')
+    await chownr(path.dirname(chartPath), uid, gid)
+    await chmodr(path.dirname(chartPath), 0o777)
   }
 
-  if (registryConfigPath) {
-    await unlink(registryConfigPath);
+  if (registryConfigFile) {
+    registryConfigFile.removeCallback()
+    // await fs.promises.unlink(registryConfigFile.name);
   }
 }
 
@@ -317,10 +331,10 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
  * Remove a helm deployment
  */
 async function helmRemove(conf: HelmDeployConfig): Promise<void> {
-  if (!conf.release) throw new Error("required and not supplied: release");
-  if (!conf.namespace) conf.namespace = "default";
-  await helmExec(["delete", "-n", conf.namespace, conf.release]);
-  await status("inactive");
+  if (!conf.release) throw new Error('required and not supplied: release')
+  if (!conf.namespace) conf.namespace = 'default'
+  await helmExec(['delete', '-n', conf.namespace, conf.release])
+  await status('inactive')
 }
 
 /**
@@ -328,45 +342,44 @@ async function helmRemove(conf: HelmDeployConfig): Promise<void> {
  */
 async function helmUpgrade(
   conf: HelmDeployConfig,
-  valuesFile: string,
+  valuesFile: string
 ): Promise<void> {
-  let args: string[] = [];
-  if (!conf.release) throw new Error("required and not supplied: release");
-  if (!conf.chart) throw new Error("required and not supplied: chart");
-  if (!conf.namespace) conf.namespace = "default";
-  if (conf.dry) args.push("--dry-run");
-  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`);
-  if (conf.timeout) args.push(`--timeout=${conf.timeout}`);
-  if (conf.atomic) args.push("--atomic");
+  const args: string[] = []
+  if (!conf.release) throw new Error('required and not supplied: release')
+  if (!conf.chart) throw new Error('required and not supplied: chart')
+  if (!conf.namespace) conf.namespace = 'default'
+  if (conf.dry) args.push('--dry-run')
+  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
+  if (conf.timeout) args.push(`--timeout=${conf.timeout}`)
+  if (conf.atomic) args.push('--atomic')
   if (conf.valueFiles)
     for (const f of conf.valueFiles) {
-      args.push(`--values=${f}`);
+      args.push(`--values=${f}`)
     }
-  if (conf.values && conf.values.length > 0)
-    args.push(`--values=${valuesFile}`);
+  if (conf.values && conf.values.length > 0) args.push(`--values=${valuesFile}`)
   await helmExec([
-    "upgrade",
-    "-n",
+    'upgrade',
+    '-n',
     conf.namespace,
     conf.release,
     conf.chart,
-    "--install",
-    "--wait",
-    ...args,
-  ]);
-  await status("success");
+    '--install',
+    '--wait',
+    ...args
+  ])
+  await status('success')
 }
 
 /**
  * Parse the action's config and start the deployment
  */
 export async function run(): Promise<void> {
-  const conf = await parseConfig();
-  if (conf.command === "login") {
+  const conf = await parseConfig()
+  if (conf.command === 'login') {
     if (conf.repo) {
       // this is just for testing
-      authenticateHelm(conf);
+      authenticateHelm(conf)
     }
   }
-  await deployHelmChart(conf);
+  await deployHelmChart(conf)
 }

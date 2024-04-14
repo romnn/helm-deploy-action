@@ -29,17 +29,24 @@ inputs:
     required: false
     default: false
   atomic:
-    description: if true, an upgrade process rolls back changes made in case of failed upgrade
+    description:
+      if true, an upgrade process rolls back changes made in case of failed
+      upgrade
     required: false
     default: true
   github-token:
-    description: github API token to fire the deployment_status for github deployments
+    description:
+      github API token to fire the deployment_status for github deployments
     required: false
   value-files:
-    description: additional value files to apply to the helm chart as JSON encoded array or string
+    description:
+      additional value files to apply to the helm chart as JSON encoded array or
+      string
     required: false
   secrets:
-    description: secret variables to include in value file interpolation as JSON encoded map
+    description:
+      secret variables to include in value file interpolation as JSON encoded
+      map
     required: false
   # upgrade and push
   chart:
