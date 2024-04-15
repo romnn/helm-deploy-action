@@ -74,10 +74,6 @@ inputs:
   app-version:
     description: version of the app
     required: false
-  chart-dir:
-    description: helm chart path
-    required: false
-    default: .
   force:
     description: force overrides charts with the same version
     required: false

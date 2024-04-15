@@ -1,4 +1,8 @@
 import * as core from '@actions/core'
+import * as fs from 'fs'
+import * as path from 'path'
+import * as YAML from 'yaml'
+import { resolvePath, pathExists } from './utils'
 
 function parseDependencies(
   deps: object | string | null | undefined
@@ -77,6 +81,38 @@ export interface HelmRepo {
 }
 
 /**
+ * Helm chart configuration
+ */
+export interface HelmChart {
+  apiVersion: string
+  name: string
+  version: string
+  kubeVersion?: string
+  description?: string
+  keywords?: string[]
+  home?: string
+  sources?: string[]
+  dependencies?: {
+    name: string
+    version: string
+    repository?: string
+    condition?: string
+    tags?: string[]
+    'import-values'?: string[]
+    alias?: string
+  }[]
+  maintainers?: {
+    name: string
+    email?: string
+    url?: string
+  }[]
+  icon?: string
+  appVersion?: string
+  deprecated?: boolean
+  annotations?: { [key: string]: string }
+}
+
+/**
  * Helm deployment configuration
  */
 export interface HelmDeployConfig {
@@ -95,17 +131,15 @@ export interface HelmDeployConfig {
   secrets?: string | object
 
   // upgrade and push
-  chart?: string
+  chartPath?: string
+  chartMetadata?: HelmChart
   chartVersion?: string
   repo?: string
   repoAlias?: string
   repoUsername?: string
   repoPassword?: string
   dependencies?: HelmRepo[]
-
-  // push
   appVersion?: string
-  chartDir?: string
   force?: boolean
 }
 
@@ -128,6 +162,47 @@ export async function parseConfig(): Promise<HelmDeployConfig> {
   const isUpgrade = command === 'upgrade'
   const isRemove = command === 'remove'
 
+  let chartMetadata: HelmChart | undefined
+  let chartPath = parseInput('chart', isUpgrade || isPush)
+
+  if (chartPath) {
+    chartPath = await resolvePath(chartPath)
+
+    // check if chart path exists
+    if (!pathExists(chartPath)) {
+      throw new Error(`${chartPath} does not exist`)
+    }
+    // try {
+    //   await fs.promises.stat(chartPath)
+    // } catch (err: unknown) {
+    //   if (isFsError(err) && err.code === 'ENOENT') {
+    //     throw new Error(`chart ${chartPath} does not exist`)
+    //   } else {
+    //     throw new Error(`failed to check if ${chartPath} exists`)
+    //   }
+    // }
+
+    if (path.basename(chartPath) === 'Chart.yaml') {
+      chartPath = path.dirname(chartPath)
+    }
+
+    // check if chart path is directory
+    const stat = await fs.promises.stat(chartPath)
+    if (!stat.isDirectory()) {
+      throw new Error(`${chartPath} is not a directory`)
+    }
+
+    // check if Chart.yaml exists
+    const chartYAMLPath = path.join(chartPath, 'Chart.yaml')
+    if (!pathExists(chartYAMLPath)) {
+      throw new Error(`${chartYAMLPath} does not exist`)
+    }
+
+    // get chart name
+    const chartYAMLContent = await fs.promises.readFile(chartYAMLPath, 'utf8')
+    chartMetadata = YAML.parse(chartYAMLContent)
+  }
+
   const conf = {
     command,
 
@@ -144,21 +219,30 @@ export async function parseConfig(): Promise<HelmDeployConfig> {
     secrets: parseSecrets(parseInput('secrets')),
 
     // upgrade and push
-    chart: parseInput('chart', isUpgrade || isPush),
+    chartPath,
+    chartMetadata,
     chartVersion: parseInput('chart-version'),
     repo: parseInput('repo', isPush),
     repoAlias: parseInput('repo-alias'),
     repoUsername: parseInput('repo-username'),
     repoPassword: parseInput('repo-password'),
     dependencies: parseDependencies(parseInput('dependencies')),
-
-    // push
     appVersion: parseInput('app-version'),
-    chartDir: parseInput('chart-dir'),
     force: parseInput('force') === 'true'
   }
 
   if (!conf.repoAlias) conf.repoAlias = 'source-chart-repo'
+
+  // normalize chart versions
+  // function normalizeVersion(version: string): string {
+  //   return version.startsWith('v') ? version : `v${version}`
+  // }
+  // if (conf.chartMetadata?.version) {
+  //   conf.chartMetadata.version = normalizeVersion(conf.chartMetadata.version)
+  // }
+  // if (conf.chartVersion) {
+  //   conf.chartVersion = normalizeVersion(conf.chartVersion)
+  // }
 
   return conf
 }

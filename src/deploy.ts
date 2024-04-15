@@ -2,6 +2,7 @@ import * as core from '@actions/core'
 import * as github from '@actions/github'
 import * as actionExec from '@actions/exec'
 import * as fs from 'fs'
+import * as assert from 'assert'
 import * as path from 'path'
 import * as YAML from 'yaml'
 import { glob } from 'glob'
@@ -13,7 +14,8 @@ import {
   HelmDeployConfig,
   getRepoConfig
 } from './config'
-import { chownr, chmodr, helmExec, getUserInfo } from './utils'
+import { helmExec } from './exec'
+import { replaceURLProtocol } from './url'
 
 tmp.setGracefulCleanup()
 
@@ -84,19 +86,41 @@ async function renderFiles(
   Promise.all(promises)
 }
 
-const is_defined = function(v?: string): boolean {
+function is_defined(v?: string): boolean {
   return v !== undefined && v !== null && v.trim() !== ''
 }
 
-/* eslint-disable-next-line: no-unused-vars */
 function buildRepositoryConfigYaml(repo: HelmRepo): string {
   // apiVersion: ""
+  // generated: "0001-01-01T00:00:00Z"
   // repositories:
   // - name: fantastic-charts
   //   url: https://fantastic-charts.storage.googleapis.com
   //   username: env.FANTASTIC_CHARTS_USERNAME
   //   password: env.FANTASTIC_CHARTS_PASSWORD
-  return YAML.stringify({
+  //   caFile: ""
+  //   certFile: ""
+  //   insecure_skip_tls_verify: false
+  //   keyFile: ""
+  //   pass_credentials_all: false
+
+  interface HelmRepoConfig {
+    name?: string
+    url?: string
+    username?: string
+    password?: string
+    caFile?: string
+    certFile?: string
+    insecure_skip_tls_verify?: boolean
+    keyFile?: string
+    pass_credentials_all?: boolean
+  }
+
+  const repositories: {
+    apiVersion: string
+    generated?: string
+    repositories: HelmRepoConfig[]
+  } = {
     apiVersion: '',
     repositories: [
       {
@@ -106,16 +130,31 @@ function buildRepositoryConfigYaml(repo: HelmRepo): string {
         password: repo.password
       }
     ]
-  })
+  }
+  return YAML.stringify(repositories)
 }
 
 function buildRegistryConfigJSON(repo: HelmRepo): string {
   // {"auths": {
-  //    "https://my.registry": "auth",
+  //    "https://my.registry": {},
   // }}
-  const auths: { [key: string]: string } = {}
+  // see https://github.com/docker/cli/blob/master/cli/config/types/authconfig.go
+  interface AuthConfig {
+    Username?: string
+    Password?: string
+    Auth?: string
+    Email?: string
+    ServerAddress?: string
+    IdentityToken?: string
+    RegistryToken?: string
+  }
+  const auths: { [key: string]: AuthConfig } = {}
   if (repo.url) {
-    auths[repo.url] = btoa(`${repo.username}: ${repo.password}`)
+    auths[repo.url] = {
+      // Auth: btoa(`${repo.username}: ${repo.password}`),
+      Username: repo.username,
+      Password: repo.password
+    }
   }
   return JSON.stringify({ auths })
 }
@@ -133,7 +172,7 @@ async function loginHelmRegistry(repo: HelmRepo): Promise<void> {
   let options: actionExec.ExecOptions = {}
   const args: string[] = []
   if (repo.username) {
-    args.push(`--username=${repo.username}`)
+    args.push(`--username='${repo.username}'`)
   }
   if (repo.password) {
     options = { ...options, input: Buffer.from(repo.password) }
@@ -160,7 +199,7 @@ async function addHelmRepo(repo: HelmRepo): Promise<void> {
   let options: actionExec.ExecOptions = {}
   const args: string[] = []
   if (repo.username) {
-    args.push(`--username=${repo.username}`)
+    args.push(`--username='${repo.username}'`)
   }
   if (repo.password) {
     options = { ...options, input: Buffer.from(repo.password) }
@@ -180,7 +219,7 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
 
   // add the helm repository
   if (conf.repo) {
-    // await authenticateHelm(conf);
+    // await authenticateHelm(conf)
   }
 
   // add dependency repositories
@@ -200,17 +239,17 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
     await fs.promises.writeFile(valuesFile, conf.values, { mode: 0o777 })
 
   // prepare kubeconfig file
-  if (process.env.KUBECONFIG_FILE) {
-    process.env.KUBECONFIG = path.join(
-      process.env.DEPLOY_ACTION_DATA_HOME ?? '.',
-      'kubeconfig.yml'
-    )
-    await fs.promises.writeFile(
-      process.env.KUBECONFIG,
-      process.env.KUBECONFIG_FILE,
-      { mode: 0o777 }
-    )
-  }
+  // if (process.env.KUBECONFIG_FILE) {
+  //   process.env.KUBECONFIG = path.join(
+  //     process.env.DEPLOY_ACTION_DATA_HOME ?? '.',
+  //     'kubeconfig.yml'
+  //   )
+  //   await fs.promises.writeFile(
+  //     process.env.KUBECONFIG,
+  //     process.env.KUBECONFIG_FILE,
+  //     { mode: 0o777 }
+  //   )
+  // }
 
   // render value files using github variables
   if (conf.valueFiles)
@@ -238,26 +277,39 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
  * Push a helm chart to a helm repository
  */
 async function helmPush(conf: HelmDeployConfig): Promise<void> {
-  if (!conf.chart) throw new Error('required and not supplied: chart')
+  if (!conf.chartPath) throw new Error('required and not supplied: chart')
+  const chartName = conf.chartMetadata?.name
+  // chart name should have been derived from the chart path
+  assert.ok(chartName)
+
   if (!conf.repo) throw new Error('required and not supplied: repo')
   if (!conf.repoUsername)
     throw new Error('required and not supplied: repo-username')
   if (!conf.repoPassword)
     throw new Error('required and not supplied: repo-password')
 
-  const chartPath = await fs.promises.realpath(
-    path.join(conf.chartDir ?? '.', conf.chart)
-  )
-  await helmExec(['inspect', 'chart', chartPath])
+  // console.log(path.join(conf.chartDir ?? '.', conf.chart))
+  // console.log(conf.chartPath)
+  // const chartPath = await resolve(path.join(conf.chartDir ?? '.', conf.chart))
+  await helmExec(['inspect', 'chart', conf.chartPath])
 
-  await helmExec(['dependency', 'update', chartPath])
+  await helmExec(['dependency', 'update', conf.chartPath])
 
   let args: string[] = []
   if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
   if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`)
-  await helmExec(['package', ...args, chartPath], { cwd: chartPath })
+  await helmExec(['package', ...args, conf.chartPath], { cwd: conf.chartPath })
 
-  const packaged = await glob(`${chartPath}/${conf.chart}-*.tgz`, {})
+  // find built package
+  let packagePattern = `${conf.chartPath}/${chartName}`
+  if (conf.chartVersion) {
+    packagePattern += `-${conf.chartVersion}.tgz`
+  } else {
+    packagePattern += `-${conf.chartMetadata?.version ?? '*'}.tgz`
+  }
+  // console.log(packagePattern)
+
+  const packaged = await glob(packagePattern, {})
   if (packaged.length < 1)
     throw new Error(
       'Could not find packaged chart to upload. This might be an internal error.'
@@ -269,36 +321,57 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
 
   const repo = getRepoConfig(conf)
   let registryConfigFile: tmp.FileResult | undefined
+  let repositoryConfigFile: tmp.FileResult | undefined
 
   if (repo.username) {
     // helm push does not support username and password
     // we create a temporary registry config
-    const registryConfigJSON = buildRegistryConfigJSON(repo)
-
-    registryConfigFile = tmp.fileSync()
 
     // const registryConfigPath = tempfile({ extension: "json" });
     // await fs.promises.writeFile(registryConfigPath, registryConfigJSON, {
+
+    const registryConfigJSON = buildRegistryConfigJSON(repo)
+    // console.log(registryConfigJSON)
+    registryConfigFile = tmp.fileSync()
     await fs.promises.writeFile(registryConfigFile.name, registryConfigJSON, {
       mode: 0o777
     })
+    args.push(`--registry-config=${registryConfigFile.name}`)
+
+    const repositoryConfigYAML = buildRepositoryConfigYaml(repo)
+    // console.log(repositoryConfigYAML)
+    repositoryConfigFile = tmp.fileSync()
+    await fs.promises.writeFile(
+      repositoryConfigFile.name,
+      repositoryConfigYAML,
+      {
+        mode: 0o777
+      }
+    )
+    // this is not necessary
+    // args.push(`--repository-config=${repositoryConfigFile.name}`)
+
     // await temporaryWrite(registryConfigJSON, {
     //   extension: "json",
     // });
-    args.push(`--registry-config=${registryConfigFile.name}`)
   }
 
   // if (conf.repoUsername) {
-  //   args.push(`--username = ${conf.repoUsername}`);
+  //   args.push(`--username='${conf.repoUsername}'`);
   // }
   // if (conf.repoPassword) {
   //   options = { ...options, input: Buffer.from(conf.repoPassword) };
   //   args.push("--password-stdin");
   // }
+  //
+
+  const repoURL = new URL(conf.repo)
+  const ociRepoURL = replaceURLProtocol(repoURL, 'oci:')
+  // console.log(ociRepoURL.toString())
 
   for (const p of packaged) {
     try {
-      await helmExec(['push', p, conf.repo, ...args], options)
+      await helmExec(['push', p, ociRepoURL.toString(), ...args], options)
     } catch (err) {
       if (registryConfigFile) {
         registryConfigFile.removeCallback()
@@ -311,9 +384,10 @@ async function helmPush(conf: HelmDeployConfig): Promise<void> {
     // const user = await getUserInfo('nobody')
     // await chownR(path.dirname(chartPath), 65534, 65534);
     // await chmodR(path.dirname(chartPath), 0o777);
-    const { uid, gid } = await getUserInfo('nobody')
-    await chownr(path.dirname(chartPath), uid, gid)
-    await chmodr(path.dirname(chartPath), 0o777)
+
+    // const { uid, gid } = await getUserInfo('nobody')
+    // await chownr(path.dirname(conf.chartPath), uid, gid)
+    // await chmodr(path.dirname(conf.chartPath), 0o777)
   }
 
   if (registryConfigFile) {
@@ -341,7 +415,7 @@ async function helmUpgrade(
 ): Promise<void> {
   const args: string[] = []
   if (!conf.release) throw new Error('required and not supplied: release')
-  if (!conf.chart) throw new Error('required and not supplied: chart')
+  if (!conf.chartPath) throw new Error('required and not supplied: chart')
   if (!conf.namespace) conf.namespace = 'default'
   if (conf.dry) args.push('--dry-run')
   if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
@@ -357,7 +431,7 @@ async function helmUpgrade(
     '-n',
     conf.namespace,
     conf.release,
-    conf.chart,
+    conf.chartPath,
     '--install',
     '--wait',
     ...args

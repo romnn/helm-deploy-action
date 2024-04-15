@@ -6,65 +6,69 @@ import * as util from 'util'
 import * as cp from 'child_process'
 import realChmodr from 'chmodr'
 
-export const execFile = util.promisify(cp.execFile)
 export const exec = util.promisify(cp.exec)
 
-interface Dict<T> {
-  [key: string]: T
+export interface FsError {
+  code: string
 }
 
-export type MockExec = jest.SpiedFunction<typeof actionExec.exec>
-export type ExecCallArgs = [
-  cmd: string,
-  args?: string[] | undefined,
-  options?: actionExec.ExecOptions | undefined
-]
+function isFsError(err: unknown): err is FsError {
+  return typeof err === 'object' && err !== null && 'code' in err
+}
 
-export type ProcessEnv = Dict<string | undefined>
+function resolveHomeDir(p: string): string {
+  const homeEnv = process.platform === 'win32' ? 'USERPROFILE' : 'HOME'
+  const home = process.env[homeEnv]
 
-export type DirectoryItems = Dict<DirectoryItems | string>
+  if (!home) {
+    return p
+  }
+  if (p === '~') return home
+  if (!p.startsWith('~/')) return p
+  return path.join(home, p.slice(2))
+}
 
 /**
- * Flatten dictionary by concatenating keys using a given separator
+ * Resolve file path, including ".", "..", and "~"
  */
-export function reduceNested(
-  ob: DirectoryItems,
-  separator = '.'
-): Dict<string> {
-  const ans: Dict<string> = {}
+export async function resolvePath(p: string): Promise<string> {
+  return await fs.promises.realpath(resolveHomeDir(p))
+}
 
-  for (const key in ob) {
-    const val = ob[key]
-    if (typeof val === 'string') {
-      ans[key] = val
+/**
+ * Check if a file exists
+ */
+export async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fs.promises.stat(p)
+    return true
+  } catch (err: unknown) {
+    if (isFsError(err) && err.code === 'ENOENT') {
+      return false
     } else {
-      const flattened = reduceNested(val, separator)
-      for (const key2 in flattened) {
-        ans[key + separator + key2] = flattened[key2]
-      }
+      throw new Error(`failed to check if ${p} exists`)
     }
   }
-  return ans
 }
 
 /**
  * Make dirs recursively
  */
-async function mkdirs(dir: string): Promise<void> {
-  const sep = '/'
-  const segments = dir.split(sep)
-  let current = ''
-  let i = 0
-  while (i < segments.length) {
-    current = current + sep + segments[i]
-    try {
-      await fs.promises.stat(current)
-    } catch {
-      await fs.promises.mkdir(current)
-    }
-    i++
-  }
-}
+// async function mkdirs(dir: string): Promise<void> {
+//   const sep = '/'
+//   const segments = dir.split(sep)
+//   let current = ''
+//   let i = 0
+//   while (i < segments.length) {
+//     current = current + sep + segments[i]
+//     try {
+//       await fs.promises.stat(current)
+//     } catch {
+//       await fs.promises.mkdir(current)
+//     }
+//     i++
+//   }
+// }
 
 async function chown(dir: string, owner: number, group: number): Promise<void> {
   try {
@@ -134,7 +138,7 @@ async function handleEISDir(
   }
 }
 
-export async function chownrChild(
+async function chownrChild(
   parent: string,
   child: fs.Dirent | string,
   owner: number,
@@ -166,14 +170,6 @@ export async function chownrChild(
     owner,
     group
   )
-}
-
-interface FsError {
-  code: string
-}
-
-function isFsError(err: unknown): err is FsError {
-  return typeof err === 'object' && err !== null && 'code' in err
 }
 
 /**
@@ -229,132 +225,12 @@ export async function chmodr(dir: string, mode: number): Promise<void> {
 }
 
 /**
- * Execute a helm command
- */
-export async function helmExec(
-  helmArgs: string[],
-  options?: actionExec.ExecOptions
-): Promise<void> {
-  await actionExec.exec('helm', helmArgs, options)
-}
-
-/**
- * Execute a command and capture stdout and stderr
- */
-export async function execWithOutput(
-  executable: string,
-  cmdArgs: string[],
-  options?: actionExec.ExecOptions
-): Promise<{ stdout: string; stderr: string }> {
-  let stdout = ''
-  let stderr = ''
-  await actionExec.exec(executable, cmdArgs, {
-    ...options,
-    ...{
-      listeners: {
-        stdout: (data: Buffer) => {
-          stdout += data.toString()
-        },
-        stderr: (data: Buffer) => {
-          stderr += data.toString()
-        }
-      }
-    }
-  })
-  return { stdout, stderr }
-}
-
-/**
  * Get uid and gid of user
  */
-export async function getUserInfo(
-  username: string
-): Promise<{ uid: number; gid: number }> {
-  const uid = parseInt((await execFile('id', ['-u', username])).stdout)
-  const gid = parseInt((await execFile('id', ['-g', username])).stdout)
-  return { uid, gid }
-}
-
-/**
- * Context manager that can be used to run test with mocked calls to actionExec.exec,
- * a mocked in memory filesystem and patched getInput
- */
-export async function withMockedExec(
-  conf: Dict<string>,
-  files: DirectoryItems,
-  callback: (mock: MockExec) => Promise<void>
-): Promise<void> {
-  await mkdirs('/tmp')
-  const reducedFiles = Object.entries(reduceNested(files, '/')).reduce(
-    (acc, item) => {
-      acc[`/${item[0]}`] = item[1]
-      return acc
-    },
-    {} as Dict<string>
-  )
-  for (const file in reducedFiles) {
-    const content = reducedFiles[file]
-    const dir = path.dirname(file)
-    await mkdirs(dir)
-    await fs.promises.writeFile(file, content)
-  }
-  try {
-    const mockGetInput = jest.spyOn(core, 'getInput')
-    const mockExec = jest.spyOn(actionExec, 'exec')
-    mockExec.mockImplementation(async () => 0)
-    mockGetInput.mockImplementation(
-      (key: string, options?: core.InputOptions): string => {
-        if (key in conf) {
-          return conf[key] ?? ''
-        } else if (options && options.required) {
-          throw new Error(`required but not supplied: ${key}`)
-        }
-        return ''
-      }
-    )
-    await callback(mockExec)
-  } catch (err) {
-    // cleanup the files
-    for (const file in reducedFiles) {
-      await fs.promises.unlink(file)
-    }
-    throw err
-  }
-}
-
-/**
- * Run the transpiled action as a subprocess
- */
-export async function runAction(
-  conf: object,
-  callback: (output: string) => Promise<void>
-): Promise<void> {
-  const env: ProcessEnv = Object.entries(conf).reduce((acc, item) => {
-    acc[`INPUT_${item[0].replace(/ /g, '_').toUpperCase()}`] = item[1]
-    return acc
-  }, {} as ProcessEnv)
-
-  const np = process.execPath
-  const ip = path.join(__dirname, '..', 'lib', 'main.js')
-  const options: cp.ExecFileSyncOptions = {
-    env: { ...process.env, ...env }
-    /* stdio: 'inherit' */
-  }
-  try {
-    const { stdout } = await execFile(np, [ip], options)
-    return await callback(stdout)
-  } catch (err: unknown) {
-    if (err instanceof Error) {
-      throw new Error(`failed to run the action distributable: ${err.message}`)
-    } else {
-      throw new Error('failed to run the action distributable')
-    }
-  }
-}
-
-/**
- * Extract executable and arguments of a call to actionExec.exec
- */
-export function args(calls: ExecCallArgs[]): string[][] {
-  return calls.map(call => [call[0], ...(call[1] ?? [])])
-}
+// export async function getUserInfo(
+//   username: string
+// ): Promise<{ uid: number; gid: number }> {
+//   const uid = parseInt((await execFile('id', ['-u', username])).stdout)
+//   const gid = parseInt((await execFile('id', ['-g', username])).stdout)
+//   return { uid, gid }
+// }

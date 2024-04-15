@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "description": "deploy your helm chart to k8s",
   "scripts": {
+    "run": "ts-node ./src/index.ts",
     "bundle": "run format:write && npm run package",
     "ci-test": "jest",
     "format:write": "prettier --write .",
