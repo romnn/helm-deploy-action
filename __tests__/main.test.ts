@@ -6,7 +6,12 @@ import * as fs from 'fs'
 import * as actionExec from '@actions/exec'
 import * as YAML from 'yaml'
 import { run, HelmRepoConfig, AuthConfig } from '../src/deploy'
-import { ActionConfig, MissingConfigError } from '../src/config'
+import {
+  ActionConfig,
+  MissingConfigError,
+  isActionConfigKey,
+  DEFAULT_CONF
+} from '../src/config'
 
 jest.mock('fs', () => {
   return new memfs({ cwd: () => '/in-mem-fs' })
@@ -103,8 +108,8 @@ async function withMockedExec(
     )
     mockGetInput.mockImplementation(
       (key: string, options?: core.InputOptions): string => {
-        if (key in conf) {
-          return (conf[key as keyof ActionConfig] ?? '').toString()
+        if (isActionConfigKey(key, conf)) {
+          return (conf[key] ?? '').toString()
         } else if (options && options.required) {
           // throw new Error(`unknown config key: ${key}`)
           throw new MissingConfigError(key as keyof ActionConfig)
@@ -122,24 +127,16 @@ async function withMockedExec(
   }
 }
 
-const DEFAULT_CONF: ActionConfig = {
-  namespace: 'default',
-  'use-oci': true,
-  force: false,
-  'dry-run': false,
-  atomic: true
-}
-
 // test('test_get_user_info', async () => {
 //   const { uid, gid } = await getUserInfo('nobody')
 //   expect(!Number.isNaN(uid))
 //   expect(!Number.isNaN(gid))
 // })
 
-test('test_valid_remove', async () => {
+test('test_valid_delete', async () => {
   const conf: ActionConfig = {
     ...DEFAULT_CONF,
-    command: 'remove',
+    command: 'delete',
     release: 'test'
   }
   const expected = [
@@ -147,8 +144,10 @@ test('test_valid_remove', async () => {
       'helm',
       'repo',
       'update',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml'
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml'
     ],
     ['helm', 'delete', '-n', 'default', 'test']
   ]
@@ -158,11 +157,11 @@ test('test_valid_remove', async () => {
   })
 })
 
-test('test_invalid_remove_missing_release', async () => {
+test('test_invalid_delete_missing_release', async () => {
   const conf: ActionConfig = {
     ...DEFAULT_CONF,
-    command: 'remove'
-    // missing the release to remove
+    command: 'delete'
+    // missing the release to delete
   }
   await withMockedExec(conf, {}, async () => {
     await expect(run()).rejects.toThrow('not supplied: release')
@@ -181,22 +180,27 @@ test('test_valid_upgrade_chart', async () => {
       'helm',
       'repo',
       'update',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml'
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml'
     ],
     [
       'helm',
       'upgrade',
-      '-n',
-      'default',
       'my-linkerd',
       'stable/linkerd',
       '--install',
       '--wait',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml',
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml',
+      '-n',
+      'default',
       '--atomic',
-      '--values=values.yml'
+      '--values',
+      'values.yml'
     ]
   ]
   const expectedRepos: HelmRepoConfig[] = [
@@ -240,27 +244,36 @@ test('test_valid_upgrade_chart_with_options', async () => {
       'helm',
       'repo',
       'update',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml'
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml'
     ],
     [
       'helm',
       'upgrade',
-      '-n',
-      'default',
       'my-linkerd',
       'stable/linkerd',
       '--install',
       '--wait',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml',
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml',
+      '-n',
+      'default',
       '--dry-run',
-      '--version=3.1.1',
-      '--timeout=1m30s',
+      '--version',
+      '3.1.1',
+      '--timeout',
+      '1m30s',
       '--atomic',
-      '--values=/in-mem-fs/file1.yml',
-      '--values=/in-mem-fs/file2.yml',
-      '--values=values.yml'
+      '--values',
+      '/in-mem-fs/file1.yml',
+      '--values',
+      '/in-mem-fs/file2.yml',
+      '--values',
+      'values.yml'
     ]
   ]
   const files = {
@@ -314,8 +327,10 @@ test('test_valid_push_local_chart_with_single_dependency', async () => {
       'helm',
       'repo',
       'update',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml'
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml'
     ],
     // ['helm', 'repo', 'update'],
     // inspect
@@ -326,15 +341,19 @@ test('test_valid_push_local_chart_with_single_dependency', async () => {
       'dependency',
       'update',
       '/in-mem-fs/my-charts/mychart',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml'
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml'
     ],
     // package
     [
       'helm',
       'package',
-      '--version=3.1.1',
-      '--app-version=v3.1.1alpha',
+      '--version',
+      '3.1.1',
+      '--app-version',
+      'v3.1.1alpha',
       '/in-mem-fs/my-charts/mychart'
     ],
     // push
@@ -343,11 +362,13 @@ test('test_valid_push_local_chart_with_single_dependency', async () => {
       'push',
       '/in-mem-fs/my-charts/mychart/myactualchart-3.1.1.tgz',
       'oci://charts.bitnami.com/bitnami',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml',
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml'
       // '--username=admin',
       // '--password=123456',
-      '--force'
+      // '--force'
     ]
   ]
   const expectedRepos: HelmRepoConfig[] = [
@@ -414,27 +435,37 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
       'helm',
       'repo',
       'update',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml'
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml'
     ],
     [
       'helm',
       'upgrade',
-      '-n',
-      'default',
       'my-mongodb',
       'bitnami/mongodb',
       '--install',
       '--wait',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml',
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml',
+      '-n',
+      'default',
+
       '--dry-run',
-      '--version=3.1.1',
-      '--timeout=1m30s',
+      '--version',
+      '3.1.1',
+      '--timeout',
+      '1m30s',
       '--atomic',
-      '--values=/in-mem-fs/file1.yml',
-      '--values=/in-mem-fs/file2.yml',
-      '--values=values.yml'
+      '--values',
+      '/in-mem-fs/file1.yml',
+      '--values',
+      '/in-mem-fs/file2.yml',
+      '--values',
+      'values.yml'
     ]
   ]
   const expectedRepos: HelmRepoConfig[] = [
@@ -479,6 +510,7 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
     release: 'my-mongodb',
     chart: 'bitnami/mongodb',
     timeout: '1m30s',
+    'kubeconfig-inline': 'top secret',
     atomic: true,
     'dry-run': true,
     'chart-version': '3.1.1',
@@ -503,27 +535,38 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
       'helm',
       'repo',
       'update',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml'
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml'
     ],
     [
       'helm',
       'upgrade',
-      '-n',
-      'default',
       'my-mongodb',
       'bitnami/mongodb',
       '--install',
       '--wait',
-      '--registry-config=/tmp/registries.json',
-      '--repository-config=/tmp/repositories.yaml',
+      '--registry-config',
+      '/tmp/registries.json',
+      '--repository-config',
+      '/tmp/repositories.yaml',
+      '-n',
+      'default',
+      '--kubeconfig',
+      '/tmp/kubeconfig.yml',
       '--dry-run',
-      '--version=3.1.1',
-      '--timeout=1m30s',
+      '--version',
+      '3.1.1',
+      '--timeout',
+      '1m30s',
       '--atomic',
-      '--values=/in-mem-fs/file1.yml',
-      '--values=/in-mem-fs/file2.yml',
-      '--values=values.yml'
+      '--values',
+      '/in-mem-fs/file1.yml',
+      '--values',
+      '/in-mem-fs/file2.yml',
+      '--values',
+      'values.yml'
     ]
   ]
   const expectedRepos: HelmRepoConfig[] = [

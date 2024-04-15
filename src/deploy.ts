@@ -298,13 +298,16 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
   // }
 
   const configs = await buildHelmConfigFiles(conf)
+  const kubeconfigFile = tmp.fileSync({ name: 'kubeconfig.yml' })
 
   try {
     await helmExec([
       'repo',
       'update',
-      `--registry-config=${configs.registryConfigFile.name}`,
-      `--repository-config=${configs.repositoryConfigFile.name}`
+      '--registry-config',
+      configs.registryConfigFile.name,
+      '--repository-config',
+      configs.repositoryConfigFile.name
     ])
 
     // prepare values override file
@@ -314,6 +317,17 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
     )
     if (conf.values && conf.values.length > 0)
       await fs.promises.writeFile(valuesFile, conf.values, { mode: 0o777 })
+
+    // if (conf.kubeconfigPath) {
+    // process.env.KUBECONFIG = conf.kubeconfigPath
+    // } else if (conf.kubeconfigInline) {
+    if (conf.kubeconfigInline) {
+      await fs.promises.writeFile(kubeconfigFile.name, conf.kubeconfigInline, {
+        mode: 0o777
+      })
+      conf.kubeconfigPath = kubeconfigFile.name
+      // process.env.KUBECONFIG = kubeconfigFile.name
+    }
 
     // prepare kubeconfig file
     // if (process.env.KUBECONFIG_FILE) {
@@ -336,8 +350,8 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
       })
 
     switch (conf.command) {
-      case 'remove':
-        await helmRemove(conf, configs)
+      case 'delete':
+        await helmDelete(conf)
         break
       case 'push':
         await helmPush(conf, configs)
@@ -354,6 +368,7 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
   } catch (err: unknown) {
     configs.repositoryConfigFile.removeCallback()
     configs.registryConfigFile.removeCallback()
+    kubeconfigFile.removeCallback()
     throw err
   }
 }
@@ -390,13 +405,15 @@ async function helmPush(
     'dependency',
     'update',
     conf.chart,
-    `--registry-config=${configs.registryConfigFile.name}`,
-    `--repository-config=${configs.repositoryConfigFile.name}`
+    '--registry-config',
+    configs.registryConfigFile.name,
+    '--repository-config',
+    configs.repositoryConfigFile.name
   ])
 
   let args: string[] = []
-  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
-  if (conf.appVersion) args.push(`--app-version=${conf.appVersion}`)
+  if (conf.chartVersion) args = [...args, '--version', conf.chartVersion]
+  if (conf.appVersion) args = [...args, '--app-version', conf.appVersion]
 
   let options: actionExec.ExecOptions = {}
   if (await pathExists(conf.chart)) {
@@ -431,8 +448,10 @@ async function helmPush(
       'push',
       packaged,
       repoURL.toString(),
-      `--registry-config=${configs.registryConfigFile.name}`,
-      `--repository-config=${configs.repositoryConfigFile.name}`
+      '--registry-config',
+      configs.registryConfigFile.name,
+      '--repository-config',
+      configs.repositoryConfigFile.name
     ],
     options
   )
@@ -461,13 +480,14 @@ async function helmPush(
 /**
  * Remove a helm deployment
  */
-async function helmRemove(
-  conf: HelmDeployConfig,
-  configs: HelmConfigFiles
-): Promise<void> {
+async function helmDelete(conf: HelmDeployConfig): Promise<void> {
   if (!conf.release) throw new MissingConfigError('release')
   if (!conf.namespace) conf.namespace = 'default'
-  await helmExec(['delete', '-n', conf.namespace, conf.release])
+  let args: string[] = []
+  if (conf.kubeconfigPath) {
+    args = [...args, '--kubeconfig', conf.kubeconfigPath]
+  }
+  await helmExec(['delete', '-n', conf.namespace, ...args, conf.release])
   await status('inactive')
 }
 
@@ -490,29 +510,36 @@ async function helmUpgrade(
   configs: HelmConfigFiles,
   valuesFile: string
 ): Promise<void> {
-  const args: string[] = []
   if (!conf.release) throw new MissingConfigError('release')
   if (!conf.chart) throw new MissingConfigError('chart')
-  if (!conf.namespace) conf.namespace = 'default'
-  if (conf.dry) args.push('--dry-run')
-  if (conf.chartVersion) args.push(`--version=${conf.chartVersion}`)
-  if (conf.timeout) args.push(`--timeout=${conf.timeout}`)
-  if (conf.atomic) args.push('--atomic')
+
+  let args: string[] = []
+  if (conf.namespace) {
+    args = [...args, '-n', conf.namespace]
+  }
+  if (conf.kubeconfigPath) {
+    args = [...args, '--kubeconfig', conf.kubeconfigPath]
+  }
+  if (conf.dry) args = [...args, '--dry-run']
+  if (conf.chartVersion) args = [...args, '--version', conf.chartVersion]
+  if (conf.timeout) args = [...args, '--timeout', conf.timeout]
+  if (conf.atomic) args = [...args, '--atomic']
   if (conf.valueFiles)
     for (const f of conf.valueFiles) {
-      args.push(`--values=${f}`)
+      args = [...args, '--values', f]
     }
-  if (conf.values && conf.values.length > 0) args.push(`--values=${valuesFile}`)
+  if (conf.values && conf.values.length > 0)
+    args = [...args, '--values', valuesFile]
   await helmExec([
     'upgrade',
-    '-n',
-    conf.namespace,
     conf.release,
     conf.chart,
     '--install',
     '--wait',
-    `--registry-config=${configs.registryConfigFile.name}`,
-    `--repository-config=${configs.repositoryConfigFile.name}`,
+    '--registry-config',
+    configs.registryConfigFile.name,
+    '--repository-config',
+    configs.repositoryConfigFile.name,
     ...args
   ])
   await status('success')

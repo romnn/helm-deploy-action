@@ -20,6 +20,12 @@ inputs:
     description: k8s namespace
     required: false
     default: default
+  kubeconfig-path:
+    description: path to kubeconfig file
+    required: false
+  kubeconfig-inline:
+    description: inline kubeconfig
+    required: false
   # upgrade
   values:
     description: helm chart values as YAML or JSON

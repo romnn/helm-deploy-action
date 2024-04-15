@@ -52,14 +52,38 @@ export class MissingConfigError extends Error {
   }
 }
 
+export const DEFAULT_CONF: ActionConfig = {
+  namespace: 'default',
+  'use-oci': true,
+  force: false,
+  'dry-run': false,
+  atomic: true
+}
+
+export function isActionConfigKey(
+  key: string,
+  obj: ActionConfig
+): key is keyof ActionConfig {
+  return key in obj
+}
+
 function parseInput(name: string, required = false): string {
+  if (isActionConfigKey(name, DEFAULT_CONF)) {
+    // this is a hack for local testing
+    if (core.getInput(name) === '') {
+      const defaultValue = DEFAULT_CONF[name]
+      if (defaultValue !== undefined) {
+        return defaultValue.toString()
+      }
+    }
+  }
   return core.getInput(name, { required })
 }
 
 function parseBooleanInput(name: string, required = false): boolean {
   const trueValues = ['true', 'yes']
   const falseValues = ['false', 'no']
-  const val = core.getInput(name, { required })
+  const val = parseInput(name, required)
   if (trueValues.includes(val.toLowerCase())) return true
   if (falseValues.includes(val.toLowerCase())) return false
   throw new TypeError(
@@ -94,6 +118,8 @@ function parseSecrets(secrets: string | object): string | object {
 export type ActionConfig = {
   command?: string
   namespace?: string
+  'kubeconfig-path'?: string
+  'kubeconfig-inline'?: string
   release?: string
   chart?: string
   atomic?: boolean
@@ -164,6 +190,8 @@ export interface HelmDeployConfig {
   release?: string
   namespace?: string
   timeout?: string
+  kubeconfigPath?: string
+  kubeconfigInline?: string
 
   // upgrade
   values?: string
@@ -280,12 +308,14 @@ export async function parseConfig(): Promise<HelmDeployConfig> {
     }
   }
 
-  const conf = {
+  const conf: HelmDeployConfig = {
     command,
 
     // remove and upgrade
     release: parseInput('release', isRemove || isUpgrade),
     namespace: parseInput('namespace'),
+    kubeconfigPath: parseInput('kubeconfig-path'),
+    kubeconfigInline: parseInput('kubeconfig-inline'),
     timeout: parseInput('timeout'),
 
     // upgrade
