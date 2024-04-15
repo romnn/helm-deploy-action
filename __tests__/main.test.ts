@@ -140,15 +140,15 @@ test('test_valid_delete', async () => {
     release: 'test'
   }
   const expected = [
-    [
-      'helm',
-      'repo',
-      'update',
-      '--registry-config',
-      '/tmp/registries.json',
-      '--repository-config',
-      '/tmp/repositories.yaml'
-    ],
+    // [
+    //   'helm',
+    //   'repo',
+    //   'update',
+    //   '--registry-config',
+    //   '/tmp/registries.json',
+    //   '--repository-config',
+    //   '/tmp/repositories.yaml'
+    // ],
     ['helm', 'delete', '-n', 'default', 'test']
   ]
   await withMockedExec(conf, {}, async (mock: MockExec) => {
@@ -176,15 +176,15 @@ test('test_valid_upgrade_chart', async () => {
     chart: 'stable/linkerd'
   }
   const expected = [
-    [
-      'helm',
-      'repo',
-      'update',
-      '--registry-config',
-      '/tmp/registries.json',
-      '--repository-config',
-      '/tmp/repositories.yaml'
-    ],
+    // [
+    //   'helm',
+    //   'repo',
+    //   'update',
+    //   '--registry-config',
+    //   '/tmp/registries.json',
+    //   '--repository-config',
+    //   '/tmp/repositories.yaml'
+    // ],
     [
       'helm',
       'upgrade',
@@ -240,15 +240,15 @@ test('test_valid_upgrade_chart_with_options', async () => {
     'value-files': '["/in-mem-fs/file1.yml", "/in-mem-fs/file2.yml"]'
   }
   const expected = [
-    [
-      'helm',
-      'repo',
-      'update',
-      '--registry-config',
-      '/tmp/registries.json',
-      '--repository-config',
-      '/tmp/repositories.yaml'
-    ],
+    // [
+    //   'helm',
+    //   'repo',
+    //   'update',
+    //   '--registry-config',
+    //   '/tmp/registries.json',
+    //   '--repository-config',
+    //   '/tmp/repositories.yaml'
+    // ],
     [
       'helm',
       'upgrade',
@@ -366,15 +366,12 @@ test('test_valid_push_local_chart_with_single_dependency', async () => {
       '/tmp/registries.json',
       '--repository-config',
       '/tmp/repositories.yaml'
-      // '--username=admin',
-      // '--password=123456',
-      // '--force'
     ]
   ]
   const expectedRepos: HelmRepoConfig[] = [
     {
       name: 'bitnami',
-      url: 'ocr://charts.bitnami.com/bitnami',
+      url: 'oci://charts.bitnami.com/bitnami',
       username: 'admin',
       password: '123456',
       pass_credentials_all: true
@@ -391,9 +388,7 @@ test('test_valid_push_local_chart_with_single_dependency', async () => {
       'my-charts': {
         mychart: {
           'myactualchart-3.1.1.tgz': 'whatever',
-          // 'linkkerd-mocks.yaml': 'whatever',
           'Chart.yaml': 'name: myactualchart\nversion: 0.3.0'
-          // 'values.yaml': 'whatever'
         }
       }
     }
@@ -430,8 +425,6 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
     'value-files': '["/in-mem-fs/file1.yml", "/in-mem-fs/file2.yml"]'
   }
   const expected = [
-    // ['helm', 'repo', 'add', 'bitnami', 'https://charts.bitnami.com/bitnami'],
-    // ['helm', 'repo', 'update'],
     [
       'helm',
       'repo',
@@ -472,7 +465,7 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
   const expectedRepos: HelmRepoConfig[] = [
     {
       name: 'bitnami',
-      url: 'https://charts.bitnami.com/bitnami',
+      url: 'oci://charts.bitnami.com/bitnami',
       username: '',
       password: '',
       pass_credentials_all: true
@@ -574,7 +567,7 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
   const expectedRepos: HelmRepoConfig[] = [
     {
       name: 'bitnami',
-      url: 'https://charts.bitnami.com/bitnami',
+      url: 'oci://charts.bitnami.com/bitnami',
       username: 'admin',
       password: '123456',
       pass_credentials_all: true

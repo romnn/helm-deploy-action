@@ -263,29 +263,7 @@ export async function parseConfig(): Promise<HelmDeployConfig> {
       if (!validRepoChart) throw err
     }
 
-    // const isPathToChart =
-    //   (path.extname(chart) !== '' && chart.split(path.sep).length > 2) ||
-    //   chart.indexOf('~') != -1 ||
-    //   chart.indexOf('.') != -1 ||
-    //   pathExists(chart)
-
     if (localChartPath) {
-      // chart = await resolvePath(chart)
-      //
-      // // check if chart path exists
-      // if (!pathExists(chart)) {
-      //   throw new Error(`${chart} does not exist`)
-      // }
-      // try {
-      //   await fs.promises.stat(chartPath)
-      // } catch (err: unknown) {
-      //   if (isFsError(err) && err.code === 'ENOENT') {
-      //     throw new Error(`chart ${chartPath} does not exist`)
-      //   } else {
-      //     throw new Error(`failed to check if ${chartPath} exists`)
-      //   }
-      // }
-
       if (path.basename(chart) === 'Chart.yaml') {
         chart = path.dirname(chart)
       }
@@ -338,17 +316,6 @@ export async function parseConfig(): Promise<HelmDeployConfig> {
     appVersion: parseInput('app-version'),
     force: parseBooleanInput('force')
   }
-
-  // normalize chart versions
-  // function normalizeVersion(version: string): string {
-  //   return version.startsWith('v') ? version : `v${version}`
-  // }
-  // if (conf.chartMetadata?.version) {
-  //   conf.chartMetadata.version = normalizeVersion(conf.chartMetadata.version)
-  // }
-  // if (conf.chartVersion) {
-  //   conf.chartVersion = normalizeVersion(conf.chartVersion)
-  // }
 
   return conf
 }

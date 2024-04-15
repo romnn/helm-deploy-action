@@ -5,12 +5,10 @@ import * as fs from 'fs'
 import * as assert from 'assert'
 import * as path from 'path'
 import * as YAML from 'yaml'
-import { glob } from 'glob'
 import tmp from 'tmp'
 import { default as Mustache } from 'mustache'
 import {
   parseConfig,
-  HelmRepo,
   HelmDeployConfig,
   getRepoConfig,
   MissingConfigError
@@ -20,11 +18,6 @@ import { helmExec } from './exec'
 import { replaceURLProtocol } from './url'
 
 tmp.setGracefulCleanup()
-
-// async function authenticateHelm(conf: HelmDeployConfig): Promise<void> {
-//   const repo = getRepoConfig(conf)
-//   await loginHelmRegistry(repo)
-// }
 
 /**
  * Mark the github deployment status if an github token was provided
@@ -143,9 +136,6 @@ function buildRepositoryConfigYaml(conf: HelmDeployConfig): string {
     ]
   }
 
-  // apiVersion: string
-  // generated?: string
-  // repositories: HelmRepoConfig[]
   return YAML.stringify({
     apiVersion: '',
     repositories
@@ -173,7 +163,7 @@ function buildRegistryConfigJSON(conf: HelmDeployConfig): string {
   const auths: { [key: string]: AuthConfig } = {}
   if (repo.url) {
     auths[repo.url] = {
-      // Auth: btoa(`${repo.username}: ${repo.password}`),
+      // Auth: btoa(`${repo.username}:${repo.password}`),
       Username: repo.username,
       Password: repo.password
     }
@@ -189,18 +179,6 @@ interface HelmConfigFiles {
 async function buildHelmConfigFiles(
   conf: HelmDeployConfig
 ): Promise<HelmConfigFiles> {
-  // let registryConfigFile: tmp.FileResult | undefined
-  // let repositoryConfigFile: tmp.FileResult | undefined
-
-  // if (repo.username) {
-  // helm push does not support username and password
-  // we create a temporary registry config
-
-  // if (!conf.repoUsername)
-  //   throw new Error('required and not supplied: repo-username')
-  // if (!conf.repoPassword)
-  //   throw new Error('required and not supplied: repo-password')
-
   if (is_defined(conf.repoUsername) && !is_defined(conf.repoPassword)) {
     throw new Error('supplied repo-username but missing repo-password')
   }
@@ -209,7 +187,6 @@ async function buildHelmConfigFiles(
   }
 
   const registryConfigJSON = buildRegistryConfigJSON(conf)
-  console.log(registryConfigJSON)
   const registryConfigFile = tmp.fileSync({
     postfix: 'registries.json'
   })
@@ -218,62 +195,13 @@ async function buildHelmConfigFiles(
   })
 
   const repositoryConfigYAML = buildRepositoryConfigYaml(conf)
-  console.log(repositoryConfigYAML)
   const repositoryConfigFile = tmp.fileSync({ postfix: 'repositories.yaml' })
   await fs.promises.writeFile(repositoryConfigFile.name, repositoryConfigYAML, {
     mode: 0o777
   })
-  // }
 
   return { repositoryConfigFile, registryConfigFile }
 }
-
-// async function loginHelmRegistry(repo: HelmRepo): Promise<void> {
-//   if (!repo.url)
-//     throw new Error('required and not supplied: repo / dependency repository')
-//   if (is_defined(repo.username) && !is_defined(repo.password)) {
-//     throw new Error('supplied repo-username but missing repo-password')
-//   }
-//   if (is_defined(repo.password) && !is_defined(repo.username)) {
-//     throw new Error('supplied repo-password but missing repo-username')
-//   }
-//
-//   let options: actionExec.ExecOptions = {}
-//   const args: string[] = []
-//   if (repo.username) {
-//     args.push(`--username='${repo.username}'`)
-//   }
-//   if (repo.password) {
-//     options = { ...options, input: Buffer.from(repo.password) }
-//     args.push('--password-stdin')
-//   }
-//
-//   await helmExec(['registry', 'login', ...args, repo.url], options)
-// }
-
-// async function addHelmRepo(repo: HelmRepo): Promise<void> {
-//   if (!repo.url)
-//     throw new Error('required and not supplied: repo / dependency repository')
-//   if (!repo.alias)
-//     throw new Error('required and not supplied: repo-alias / dependency alias')
-//   if (is_defined(repo.username) && !is_defined(repo.password)) {
-//     throw new Error('supplied repo-username but missing repo-password')
-//   }
-//   if (is_defined(repo.password) && !is_defined(repo.username)) {
-//     throw new Error('supplied repo-password but missing repo-username')
-//   }
-//
-//   let options: actionExec.ExecOptions = {}
-//   const args: string[] = []
-//   if (repo.username) {
-//     args.push(`--username='${repo.username}'`)
-//   }
-//   if (repo.password) {
-//     options = { ...options, input: Buffer.from(repo.password) }
-//     args.push('--password-stdin')
-//   }
-//   await helmExec(['repo', 'add', ...args, repo.alias, repo.url], options)
-// }
 
 /**
  * Deploy or remove a helm chart
@@ -283,22 +211,6 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
   await status('pending')
 
   if (!conf.command) throw new MissingConfigError('command')
-
-  // add the helm repository
-  if (conf.repo && conf.chart) {
-    // const repo = getRepoConfig(conf)
-    // await addHelmRepo(repo)
-    // await helmExec(['repo', 'update'])
-    // await authenticateHelm(conf)
-  }
-
-  // add dependency repositories
-  // if (conf.dependencies && conf.dependencies.length > 0) {
-  //   for (const dep of conf.dependencies) {
-  //     await addHelmRepo(dep)
-  //   }
-  //   await helmExec(['repo', 'update'])
-  // }
 
   const configs = await buildHelmConfigFiles(conf)
   const kubeconfigFile = tmp.fileSync({ postfix: 'kubeconfig.yml' })
@@ -323,29 +235,12 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
     if (conf.values && conf.values.length > 0)
       await fs.promises.writeFile(valuesFile, conf.values, { mode: 0o777 })
 
-    // if (conf.kubeconfigPath) {
-    // process.env.KUBECONFIG = conf.kubeconfigPath
-    // } else if (conf.kubeconfigInline) {
     if (conf.kubeconfigInline) {
       await fs.promises.writeFile(kubeconfigFile.name, conf.kubeconfigInline, {
         mode: 0o777
       })
       conf.kubeconfigPath = kubeconfigFile.name
-      // process.env.KUBECONFIG = kubeconfigFile.name
     }
-
-    // prepare kubeconfig file
-    // if (process.env.KUBECONFIG_FILE) {
-    //   process.env.KUBECONFIG = path.join(
-    //     process.env.DEPLOY_ACTION_DATA_HOME ?? '.',
-    //     'kubeconfig.yml'
-    //   )
-    //   await fs.promises.writeFile(
-    //     process.env.KUBECONFIG,
-    //     process.env.KUBECONFIG_FILE,
-    //     { mode: 0o777 }
-    //   )
-    // }
 
     // render value files using github variables
     if (conf.valueFiles)
@@ -364,9 +259,6 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
       case 'upgrade':
         await helmUpgrade(conf, configs, valuesFile)
         break
-      // case 'login':
-      //   await helmLogin(conf, configs)
-      //   break
       default:
         throw new Error(`unkown helm command: ${conf.command}`)
     }
@@ -398,9 +290,6 @@ async function helmPush(
   const chartVersion = conf.chartMetadata.version
   assert.ok(chartName, 'have chart name from Chart.yaml')
   assert.ok(chartVersion, 'have chart version from Chart.yaml')
-
-  // const repoChartName = path.basename(conf.chart)
-  // const chartName = localChartName ?? repoChartName
 
   if (!conf.repo) throw new MissingConfigError('repo')
 
@@ -434,9 +323,6 @@ async function helmPush(
     packaged += `-${chartVersion}.tgz`
   }
 
-  // assert.ok(await pathExists(packagePattern))
-  // const packaged = await glob(packagePattern, {})
-  // if (packaged.length < 1)
   if (!(await pathExists(packaged))) {
     throw new Error(`Could not find packaged chart.Expected ${packaged}`)
   }
@@ -446,8 +332,6 @@ async function helmPush(
     repoURL = replaceURLProtocol(repoURL, 'oci:')
   }
 
-  // for (const p of packaged) {
-  // try {
   await helmExec(
     [
       'push',
@@ -460,26 +344,6 @@ async function helmPush(
     ],
     options
   )
-  // } catch (err) {
-  // if (configs.registryConfigFile) {
-  //   configs.registryConfigFile.removeCallback()
-  // }
-  // throw err
-  // }
-  // Fix: the container uses root and we need to namually set the chart directory permissions
-  // to something that the following actions can still read and write
-  // const user = await getUserInfo('nobody')
-  // await chownR(path.dirname(chartPath), 65534, 65534);
-  // await chmodR(path.dirname(chartPath), 0o777);
-
-  // const { uid, gid } = await getUserInfo('nobody')
-  // await chownr(path.dirname(conf.chartPath), uid, gid)
-  // await chmodr(path.dirname(conf.chartPath), 0o777)
-  // }
-
-  // if (configs.registryConfigFile) {
-  //   configs.registryConfigFile.removeCallback()
-  // }
 }
 
 /**
@@ -495,17 +359,6 @@ async function helmDelete(conf: HelmDeployConfig): Promise<void> {
   await helmExec(['delete', '-n', conf.namespace, ...args, conf.release])
   await status('inactive')
 }
-
-/**
- * Login to helm registry and repository
- */
-// async function helmLogin(
-//   conf: HelmDeployConfig,
-//   configs: HelmConfigFiles
-// ): Promise<void> {
-//   if (!conf.repo) throw new Error('required and not supplied: repo')
-//   authenticateHelm(conf)
-// }
 
 /**
  * Upgrade a helm deployment
