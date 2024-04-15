@@ -122,25 +122,24 @@ function buildRepositoryConfigYaml(conf: HelmDeployConfig): string {
       ...conf.dependencies
         .filter(d => is_defined(d.url))
         .map(d => {
-          return {
-            name: d.alias,
-            url: d.url,
-            username: d.username,
-            password: d.password
-          } as HelmRepoConfig
+          let repoURL = new URL(d.url ?? '')
+          if (conf.useOCI) {
+            repoURL = replaceURLProtocol(repoURL, 'oci:')
+          }
+          return { ...d, url: repoURL.toString(), pass_credentials_all: true }
         })
     ]
   }
 
   if (repo.url) {
+    let repoURL = new URL(repo.url ?? '')
+    if (conf.useOCI) {
+      repoURL = replaceURLProtocol(repoURL, 'oci:')
+    }
+
     repositories = [
       ...repositories,
-      {
-        name: repo.alias,
-        url: repo.url,
-        username: repo.username,
-        password: repo.password
-      }
+      { ...repo, url: repoURL.toString(), pass_credentials_all: true }
     ]
   }
 
@@ -210,13 +209,17 @@ async function buildHelmConfigFiles(
   }
 
   const registryConfigJSON = buildRegistryConfigJSON(conf)
-  const registryConfigFile = tmp.fileSync({ name: 'registries.json' })
+  console.log(registryConfigJSON)
+  const registryConfigFile = tmp.fileSync({
+    postfix: 'registries.json'
+  })
   await fs.promises.writeFile(registryConfigFile.name, registryConfigJSON, {
     mode: 0o777
   })
 
   const repositoryConfigYAML = buildRepositoryConfigYaml(conf)
-  const repositoryConfigFile = tmp.fileSync({ name: 'repositories.yaml' })
+  console.log(repositoryConfigYAML)
+  const repositoryConfigFile = tmp.fileSync({ postfix: 'repositories.yaml' })
   await fs.promises.writeFile(repositoryConfigFile.name, repositoryConfigYAML, {
     mode: 0o777
   })
@@ -298,7 +301,7 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
   // }
 
   const configs = await buildHelmConfigFiles(conf)
-  const kubeconfigFile = tmp.fileSync({ name: 'kubeconfig.yml' })
+  const kubeconfigFile = tmp.fileSync({ postfix: 'kubeconfig.yml' })
 
   try {
     await helmExec([
@@ -530,6 +533,7 @@ async function helmUpgrade(
     }
   if (conf.values && conf.values.length > 0)
     args = [...args, '--values', valuesFile]
+
   await helmExec([
     'upgrade',
     conf.release,

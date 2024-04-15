@@ -91,8 +91,8 @@ async function withMockedExec(
     mockExec.mockImplementation(async () => 0)
     mockTmpFile.mockImplementation(
       (options?: tmp.FileOptions | undefined): tmp.FileResult => {
-        if (options?.name) {
-          const tmpFilePath = path.join('/tmp', options.name)
+        if (options?.postfix) {
+          const tmpFilePath = path.join('/tmp', options.postfix)
           const tmpFile = fs.openSync(tmpFilePath, 'w')
           return {
             name: tmpFilePath,
@@ -102,7 +102,7 @@ async function withMockedExec(
             }
           }
         } else {
-          throw Error('cannot mock tmp files without name')
+          throw Error('cannot mock tmp files without postfix')
         }
       }
     )
@@ -299,13 +299,13 @@ test('test_valid_push_local_chart_with_single_dependency', async () => {
     'app-version': 'v3.1.1alpha',
     repo: 'https://charts.bitnami.com/bitnami',
     'use-oci': true,
-    'repo-alias': 'bitnami',
+    'repo-name': 'bitnami',
     'repo-username': 'admin',
     'repo-password': '123456',
     dependencies: JSON.stringify([
       {
         repository: 'https://charts.bitnami.com/flink',
-        alias: 'flink'
+        name: 'flink'
       }
     ])
   }
@@ -374,9 +374,10 @@ test('test_valid_push_local_chart_with_single_dependency', async () => {
   const expectedRepos: HelmRepoConfig[] = [
     {
       name: 'bitnami',
-      url: 'https://charts.bitnami.com/bitnami',
+      url: 'ocr://charts.bitnami.com/bitnami',
       username: 'admin',
-      password: '123456'
+      password: '123456',
+      pass_credentials_all: true
     }
   ]
   const expectedRegistries: { [key: string]: AuthConfig } = {
@@ -424,7 +425,7 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
     'dry-run': true,
     'chart-version': '3.1.1',
     repo: 'https://charts.bitnami.com/bitnami',
-    'repo-alias': 'bitnami',
+    'repo-name': 'bitnami',
     values: '{"test": "123"}',
     'value-files': '["/in-mem-fs/file1.yml", "/in-mem-fs/file2.yml"]'
   }
@@ -473,7 +474,8 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
       name: 'bitnami',
       url: 'https://charts.bitnami.com/bitnami',
       username: '',
-      password: ''
+      password: '',
+      pass_credentials_all: true
     }
   ]
   const expectedRegistries: { [key: string]: AuthConfig } = {
@@ -515,7 +517,7 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
     'dry-run': true,
     'chart-version': '3.1.1',
     repo: 'https://charts.bitnami.com/bitnami',
-    'repo-alias': 'bitnami',
+    'repo-name': 'bitnami',
     'repo-username': 'admin',
     'repo-password': '123456',
     values: '{"test": "123"}',
@@ -574,7 +576,8 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
       name: 'bitnami',
       url: 'https://charts.bitnami.com/bitnami',
       username: 'admin',
-      password: '123456'
+      password: '123456',
+      pass_credentials_all: true
     }
   ]
   const expectedRegistries: { [key: string]: AuthConfig } = {
@@ -612,7 +615,7 @@ test('test_invalid_upgrade_chart_missing_repo_password', async () => {
     release: 'my-linkerd',
     chart: 'bitnami/linkerd',
     repo: 'https://charts.bitnami.com/bitnami',
-    'repo-alias': 'bitnami',
+    'repo-name': 'bitnami',
     'repo-username': 'admin'
     // missing the repo password for user "admin"
   }

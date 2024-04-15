@@ -62,10 +62,10 @@ inputs:
     description: version of the chart
     required: false
   repo:
-    description: helm repo url where the chart is stored
+    description: helm repo url
     required: false
-  repo-alias:
-    description: helm repo alias name to use
+  repo-name:
+    description: helm repo name
     required: false
   repo-username:
     description: helm repo username

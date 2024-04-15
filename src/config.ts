@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as YAML from 'yaml'
 import { resolvePath, pathExists } from './utils'
-import { isValidHttpURL } from './url'
+import { isValidURL } from './url'
 
 function parseDependencies(
   deps: object | string | null | undefined
@@ -127,7 +127,7 @@ export type ActionConfig = {
   'chart-version'?: string
   'app-version'?: string
   repo?: string
-  'repo-alias'?: string
+  'repo-name'?: string
   'repo-username'?: string
   'repo-password'?: string
   'use-oci'?: boolean
@@ -143,7 +143,7 @@ export type ActionConfig = {
  */
 export interface HelmRepo {
   url?: string
-  alias?: string
+  name?: string
   username?: string
   password?: string
 }
@@ -205,7 +205,7 @@ export interface HelmDeployConfig {
   chartMetadata?: HelmChart
   chartVersion?: string
   repo?: string
-  repoAlias?: string
+  repoName?: string
   repoUsername?: string
   repoPassword?: string
   useOCI?: boolean
@@ -217,7 +217,7 @@ export interface HelmDeployConfig {
 export function getRepoConfig(conf: HelmDeployConfig): HelmRepo {
   return {
     url: conf.repo,
-    alias: conf.repoAlias,
+    name: conf.repoName,
     username: conf.repoUsername,
     password: conf.repoPassword
   }
@@ -245,7 +245,7 @@ export async function parseConfig(): Promise<HelmDeployConfig> {
       chart.indexOf('.') == -1
 
     // check if chart is full absolute url
-    const validAbsoluteRepoChart = isValidHttpURL(chart)
+    const validAbsoluteRepoChart = isValidURL(chart)
     const validRepoChart = validRelativeRepoChart || validAbsoluteRepoChart
 
     let localChartPath = false
@@ -330,7 +330,7 @@ export async function parseConfig(): Promise<HelmDeployConfig> {
     chartMetadata,
     chartVersion: parseInput('chart-version'),
     repo: parseInput('repo', isPush),
-    repoAlias: parseInput('repo-alias'),
+    repoName: parseInput('repo-name'),
     repoUsername: parseInput('repo-username'),
     repoPassword: parseInput('repo-password'),
     useOCI: parseBooleanInput('use-oci'),
@@ -338,8 +338,6 @@ export async function parseConfig(): Promise<HelmDeployConfig> {
     appVersion: parseInput('app-version'),
     force: parseBooleanInput('force')
   }
-
-  if (!conf.repoAlias) conf.repoAlias = 'source-chart-repo'
 
   // normalize chart versions
   // function normalizeVersion(version: string): string {
