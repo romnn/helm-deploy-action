@@ -67,6 +67,10 @@ inputs:
   repo-password:
     description: helm repo password
     required: false
+  use-oci:
+    description: use OCI protocol when pushing charts
+    required: false
+    default: true
   dependencies:
     description: helm chart dependencies as YAML or JSON
     required: false

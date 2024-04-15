@@ -44,3 +44,12 @@ export function replaceURLProtocol<T extends URL, P extends string = string>(
 
   return url
 }
+
+export function isValidHttpURL(s: string): boolean {
+  try {
+    const url = new URL(s)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch (_) {
+    return false
+  }
+}

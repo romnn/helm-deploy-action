@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as YAML from 'yaml'
 import { resolvePath, pathExists } from './utils'
+import { isValidHttpURL } from './url'
 
 function parseDependencies(
   deps: object | string | null | undefined
@@ -45,11 +46,25 @@ function parseValueFiles(files: string | string[]): string[] {
   return fileList.filter(f => !!f)
 }
 
-/**
- * Parse actions input values
- */
+export class MissingConfigError extends Error {
+  constructor(key: keyof ActionConfig) {
+    super(`required and not supplied: ${key}`)
+  }
+}
+
 function parseInput(name: string, required = false): string {
   return core.getInput(name, { required })
+}
+
+function parseBooleanInput(name: string, required = false): boolean {
+  const trueValues = ['true', 'yes']
+  const falseValues = ['false', 'no']
+  const val = core.getInput(name, { required })
+  if (trueValues.includes(val.toLowerCase())) return true
+  if (falseValues.includes(val.toLowerCase())) return false
+  throw new TypeError(
+    `Boolean input "${name}" must be one of: ${[...trueValues, ...falseValues]}`
+  )
 }
 
 function parseValues(values: object | string | null | undefined): string {
@@ -73,6 +88,33 @@ function parseSecrets(secrets: string | object): string | object {
   return secrets
 }
 
+/**
+ * Action input config
+ */
+export type ActionConfig = {
+  command?: string
+  namespace?: string
+  release?: string
+  chart?: string
+  atomic?: boolean
+  'dry-run'?: boolean
+  'chart-version'?: string
+  'app-version'?: string
+  repo?: string
+  'repo-alias'?: string
+  'repo-username'?: string
+  'repo-password'?: string
+  'use-oci'?: boolean
+  values?: string
+  'value-files'?: string
+  dependencies?: string
+  timeout?: string
+  force?: boolean
+}
+
+/**
+ * Helm repo configuration
+ */
 export interface HelmRepo {
   url?: string
   alias?: string
@@ -131,13 +173,14 @@ export interface HelmDeployConfig {
   secrets?: string | object
 
   // upgrade and push
-  chartPath?: string
+  chart?: string
   chartMetadata?: HelmChart
   chartVersion?: string
   repo?: string
   repoAlias?: string
   repoUsername?: string
   repoPassword?: string
+  useOCI?: boolean
   dependencies?: HelmRepo[]
   appVersion?: string
   force?: boolean
@@ -163,44 +206,78 @@ export async function parseConfig(): Promise<HelmDeployConfig> {
   const isRemove = command === 'remove'
 
   let chartMetadata: HelmChart | undefined
-  let chartPath = parseInput('chart', isUpgrade || isPush)
+  let chart = parseInput('chart', isUpgrade || isPush)
 
-  if (chartPath) {
-    chartPath = await resolvePath(chartPath)
+  if (chart) {
+    // check if chart is repo/chart
+    const validRelativeRepoChart =
+      path.extname(chart) === '' &&
+      chart.split(path.sep).length == 2 &&
+      chart.indexOf('~') == -1 &&
+      chart.indexOf('.') == -1
 
-    // check if chart path exists
-    if (!pathExists(chartPath)) {
-      throw new Error(`${chartPath} does not exist`)
-    }
-    // try {
-    //   await fs.promises.stat(chartPath)
-    // } catch (err: unknown) {
-    //   if (isFsError(err) && err.code === 'ENOENT') {
-    //     throw new Error(`chart ${chartPath} does not exist`)
-    //   } else {
-    //     throw new Error(`failed to check if ${chartPath} exists`)
-    //   }
-    // }
+    // check if chart is full absolute url
+    const validAbsoluteRepoChart = isValidHttpURL(chart)
+    const validRepoChart = validRelativeRepoChart || validAbsoluteRepoChart
 
-    if (path.basename(chartPath) === 'Chart.yaml') {
-      chartPath = path.dirname(chartPath)
-    }
-
-    // check if chart path is directory
-    const stat = await fs.promises.stat(chartPath)
-    if (!stat.isDirectory()) {
-      throw new Error(`${chartPath} is not a directory`)
-    }
-
-    // check if Chart.yaml exists
-    const chartYAMLPath = path.join(chartPath, 'Chart.yaml')
-    if (!pathExists(chartYAMLPath)) {
-      throw new Error(`${chartYAMLPath} does not exist`)
+    let localChartPath = false
+    try {
+      // check if chart path exists
+      if (await pathExists(await resolvePath(chart))) {
+        chart = await resolvePath(chart)
+        localChartPath = true
+      } else {
+        throw new Error(
+          `${chart} does not exist and is not in the form <chartname> or <repo/chartname>`
+        )
+      }
+    } catch (err) {
+      if (!validRepoChart) throw err
     }
 
-    // get chart name
-    const chartYAMLContent = await fs.promises.readFile(chartYAMLPath, 'utf8')
-    chartMetadata = YAML.parse(chartYAMLContent)
+    // const isPathToChart =
+    //   (path.extname(chart) !== '' && chart.split(path.sep).length > 2) ||
+    //   chart.indexOf('~') != -1 ||
+    //   chart.indexOf('.') != -1 ||
+    //   pathExists(chart)
+
+    if (localChartPath) {
+      // chart = await resolvePath(chart)
+      //
+      // // check if chart path exists
+      // if (!pathExists(chart)) {
+      //   throw new Error(`${chart} does not exist`)
+      // }
+      // try {
+      //   await fs.promises.stat(chartPath)
+      // } catch (err: unknown) {
+      //   if (isFsError(err) && err.code === 'ENOENT') {
+      //     throw new Error(`chart ${chartPath} does not exist`)
+      //   } else {
+      //     throw new Error(`failed to check if ${chartPath} exists`)
+      //   }
+      // }
+
+      if (path.basename(chart) === 'Chart.yaml') {
+        chart = path.dirname(chart)
+      }
+
+      // check if chart path is directory
+      const stat = await fs.promises.stat(chart)
+      if (!stat.isDirectory()) {
+        throw new Error(`${chart} is not a directory`)
+      }
+
+      // check if Chart.yaml exists
+      const chartYAMLPath = path.join(chart, 'Chart.yaml')
+      if (!pathExists(chartYAMLPath)) {
+        throw new Error(`${chartYAMLPath} does not exist`)
+      }
+
+      // get chart name
+      const chartYAMLContent = await fs.promises.readFile(chartYAMLPath, 'utf8')
+      chartMetadata = YAML.parse(chartYAMLContent)
+    }
   }
 
   const conf = {
@@ -213,22 +290,23 @@ export async function parseConfig(): Promise<HelmDeployConfig> {
 
     // upgrade
     values: parseValues(parseInput('values')),
-    dry: parseInput('dry-run') === 'true',
-    atomic: parseInput('atomic') === 'true',
+    dry: parseBooleanInput('dry-run'),
+    atomic: parseBooleanInput('atomic'),
     valueFiles: parseValueFiles(parseInput('value-files')),
     secrets: parseSecrets(parseInput('secrets')),
 
     // upgrade and push
-    chartPath,
+    chart,
     chartMetadata,
     chartVersion: parseInput('chart-version'),
     repo: parseInput('repo', isPush),
     repoAlias: parseInput('repo-alias'),
     repoUsername: parseInput('repo-username'),
     repoPassword: parseInput('repo-password'),
+    useOCI: parseBooleanInput('use-oci'),
     dependencies: parseDependencies(parseInput('dependencies')),
     appVersion: parseInput('app-version'),
-    force: parseInput('force') === 'true'
+    force: parseBooleanInput('force')
   }
 
   if (!conf.repoAlias) conf.repoAlias = 'source-chart-repo'

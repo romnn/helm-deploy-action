@@ -1,13 +1,15 @@
 import memfs from 'metro-memory-fs'
+import tmp from 'tmp'
 import * as core from '@actions/core'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as actionExec from '@actions/exec'
-import { run } from '../src/deploy'
-// import { withMockedExec, args, MockExec } from '../src/exec'
+import * as YAML from 'yaml'
+import { run, HelmRepoConfig, AuthConfig } from '../src/deploy'
+import { ActionConfig, MissingConfigError } from '../src/config'
 
 jest.mock('fs', () => {
-  return new memfs({ cwd: () => '/tmp' })
+  return new memfs({ cwd: () => '/in-mem-fs' })
 })
 
 type DirectoryItems = { [key: string]: DirectoryItems | string }
@@ -51,14 +53,18 @@ function reduceNested(
 }
 
 /**
- * Context manager that can be used to run test with mocked calls to actionExec.exec,
- * a mocked in memory filesystem and patched getInput
+ * Context manager that can be used to run test with mocked
+ * calls to actionExec.exec
+ *
+ * Uses mocked in memory filesystem and patched getInput
  */
 async function withMockedExec(
-  conf: { [key: string]: string },
+  conf: ActionConfig,
   files: DirectoryItems,
   callback: (mock: MockExec) => Promise<void>
 ): Promise<void> {
+  // note that all
+  await fs.promises.mkdir('/in-mem-fs', { recursive: true })
   await fs.promises.mkdir('/tmp', { recursive: true })
   const reducedFiles = Object.entries(reduceNested(files, '/')).reduce(
     (acc, item) => {
@@ -75,14 +81,33 @@ async function withMockedExec(
   }
   try {
     const mockGetInput = jest.spyOn(core, 'getInput')
+    const mockTmpFile = jest.spyOn(tmp, 'fileSync')
     const mockExec = jest.spyOn(actionExec, 'exec')
     mockExec.mockImplementation(async () => 0)
+    mockTmpFile.mockImplementation(
+      (options?: tmp.FileOptions | undefined): tmp.FileResult => {
+        if (options?.name) {
+          const tmpFilePath = path.join('/tmp', options.name)
+          const tmpFile = fs.openSync(tmpFilePath, 'w')
+          return {
+            name: tmpFilePath,
+            fd: tmpFile,
+            removeCallback: () => {
+              fs.unlinkSync(tmpFilePath)
+            }
+          }
+        } else {
+          throw Error('cannot mock tmp files without name')
+        }
+      }
+    )
     mockGetInput.mockImplementation(
       (key: string, options?: core.InputOptions): string => {
         if (key in conf) {
-          return conf[key] ?? ''
+          return (conf[key as keyof ActionConfig] ?? '').toString()
         } else if (options && options.required) {
-          throw new Error(`required but not supplied: ${key}`)
+          // throw new Error(`unknown config key: ${key}`)
+          throw new MissingConfigError(key as keyof ActionConfig)
         }
         return ''
       }
@@ -97,23 +122,13 @@ async function withMockedExec(
   }
 }
 
-const command = 'command'
-const release = 'release'
-const chart = 'chart'
-const chartDir = 'chart-dir'
-const atomic = 'atomic'
-const dryRun = 'dry-run'
-const chartVersion = 'chart-version'
-const appVersion = 'app-version'
-const repo = 'repo'
-const repoAlias = 'repo-alias'
-const repoUsername = 'repo-username'
-const repoPassword = 'repo-password'
-const values = 'values'
-const valueFiles = 'value-files'
-const dependencies = 'dependencies'
-const helmTimeout = 'timeout'
-const force = 'force'
+const DEFAULT_CONF: ActionConfig = {
+  namespace: 'default',
+  'use-oci': true,
+  force: false,
+  'dry-run': false,
+  atomic: true
+}
 
 // test('test_get_user_info', async () => {
 //   const { uid, gid } = await getUserInfo('nobody')
@@ -122,11 +137,21 @@ const force = 'force'
 // })
 
 test('test_valid_remove', async () => {
-  const conf = {
-    [command]: 'remove',
-    [release]: 'test'
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
+    command: 'remove',
+    release: 'test'
   }
-  const expected = [['helm', 'delete', '-n', 'default', 'test']]
+  const expected = [
+    [
+      'helm',
+      'repo',
+      'update',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml'
+    ],
+    ['helm', 'delete', '-n', 'default', 'test']
+  ]
   await withMockedExec(conf, {}, async (mock: MockExec) => {
     await run()
     expect(args(mock.mock.calls)).toEqual(expected)
@@ -134,8 +159,9 @@ test('test_valid_remove', async () => {
 })
 
 test('test_invalid_remove_missing_release', async () => {
-  const conf = {
-    [command]: 'remove'
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
+    command: 'remove'
     // missing the release to remove
   }
   await withMockedExec(conf, {}, async () => {
@@ -144,12 +170,20 @@ test('test_invalid_remove_missing_release', async () => {
 })
 
 test('test_valid_upgrade_chart', async () => {
-  const conf = {
-    [command]: 'upgrade',
-    [release]: 'my-linkerd',
-    [chart]: 'stable/linkerd'
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
+    command: 'upgrade',
+    release: 'my-linkerd',
+    chart: 'stable/linkerd'
   }
   const expected = [
+    [
+      'helm',
+      'repo',
+      'update',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml'
+    ],
     [
       'helm',
       'upgrade',
@@ -159,28 +193,56 @@ test('test_valid_upgrade_chart', async () => {
       'stable/linkerd',
       '--install',
       '--wait',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml',
+      '--atomic',
       '--values=values.yml'
     ]
   ]
+  const expectedRepos: HelmRepoConfig[] = [
+    // { name: 'stable' url: 'https://charts.helm.sh/stable' }
+  ]
+  const expectedRegistries: { [key: string]: AuthConfig } = {
+    // 'https://charts.helm.sh/stable': { }
+  }
+
   await withMockedExec(conf, {}, async mock => {
     await run()
     expect(args(mock.mock.calls)).toEqual(expected)
+
+    const repos = YAML.parse(
+      await fs.promises.readFile('/tmp/repositories.yaml', 'utf8')
+    )
+    expect(repos.repositories).toEqual(expectedRepos)
+
+    const registries = JSON.parse(
+      await fs.promises.readFile('/tmp/registries.json', 'utf8')
+    )
+    expect(registries.auths).toEqual(expectedRegistries)
   })
 })
 
 test('test_valid_upgrade_chart_with_options', async () => {
-  const conf = {
-    [command]: 'upgrade',
-    [release]: 'my-linkerd',
-    [chart]: 'stable/linkerd',
-    [helmTimeout]: '1m30s',
-    [atomic]: 'true',
-    [dryRun]: 'true',
-    [chartVersion]: '3.1.1',
-    [values]: '{"test": "123"}',
-    [valueFiles]: '["/tmp/file1.yml", "/tmp/file2.yml"]'
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
+    command: 'upgrade',
+    release: 'my-linkerd',
+    chart: 'stable/linkerd',
+    timeout: '1m30s',
+    atomic: true,
+    'dry-run': true,
+    'chart-version': '3.1.1',
+    values: '{"test": "123"}',
+    'value-files': '["/in-mem-fs/file1.yml", "/in-mem-fs/file2.yml"]'
   }
   const expected = [
+    [
+      'helm',
+      'repo',
+      'update',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml'
+    ],
     [
       'helm',
       'upgrade',
@@ -190,17 +252,19 @@ test('test_valid_upgrade_chart_with_options', async () => {
       'stable/linkerd',
       '--install',
       '--wait',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml',
       '--dry-run',
       '--version=3.1.1',
       '--timeout=1m30s',
       '--atomic',
-      '--values=/tmp/file1.yml',
-      '--values=/tmp/file2.yml',
+      '--values=/in-mem-fs/file1.yml',
+      '--values=/in-mem-fs/file2.yml',
       '--values=values.yml'
     ]
   ]
   const files = {
-    tmp: {
+    'in-mem-fs': {
       'file1.yml': 'test: file1',
       'file2.yml': 'test: file2'
     }
@@ -211,71 +275,103 @@ test('test_valid_upgrade_chart_with_options', async () => {
   })
 })
 
-test('test_valid_push_chart_with_single_dependency', async () => {
-  const conf = {
-    [command]: 'push',
-    [helmTimeout]: '1m30s',
-    [force]: 'true',
-    [chart]: 'linkerd',
-    [chartDir]: './charts',
-    [chartVersion]: '3.1.1',
-    [appVersion]: 'v3.1.1alpha',
-    [repo]: 'https://charts.bitnami.com/bitnami',
-    [repoAlias]: 'bitnami',
-    [repoUsername]: 'admin',
-    [repoPassword]: '123456',
-    [dependencies]: JSON.stringify([
+test('test_valid_push_local_chart_with_single_dependency', async () => {
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
+    command: 'push',
+    timeout: '1m30s',
+    force: true,
+    chart: './my-charts/mychart',
+    'chart-version': '3.1.1',
+    'app-version': 'v3.1.1alpha',
+    repo: 'https://charts.bitnami.com/bitnami',
+    'use-oci': true,
+    'repo-alias': 'bitnami',
+    'repo-username': 'admin',
+    'repo-password': '123456',
+    dependencies: JSON.stringify([
       {
-        repository: 'https://charts.bitnami.com/bitnami',
-        alias: 'bitnami'
+        repository: 'https://charts.bitnami.com/flink',
+        alias: 'flink'
       }
     ])
   }
   const expected = [
+    // [
+    //   'helm',
+    //   'repo',
+    //   'add',
+    //   'bitnami',
+    //   'https://charts.bitnami.com/bitnami',
+    //   '--username=admin',
+    //   '--password=123456'
+    // ],
+    // ['helm', 'repo', 'update'],
+    // dependency repos
+    // ['helm', 'repo', 'add', 'dep', 'https://charts.bitnami.com/dep'],
+    // update repos
     [
       'helm',
       'repo',
-      'add',
-      'bitnami',
-      'https://charts.bitnami.com/bitnami',
-      '--username=admin',
-      '--password=123456'
+      'update',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml'
     ],
-    ['helm', 'repo', 'update'],
-    // dependency repos
-    ['helm', 'repo', 'add', 'bitnami', 'https://charts.bitnami.com/bitnami'],
-    ['helm', 'repo', 'update'],
+    // ['helm', 'repo', 'update'],
     // inspect
-    ['helm', 'inspect', 'chart', '/tmp/charts/linkerd'],
-    // update
-    ['helm', 'dependency', 'update', '/tmp/charts/linkerd'],
+    ['helm', 'inspect', 'chart', '/in-mem-fs/my-charts/mychart'],
+    // dependency update
+    [
+      'helm',
+      'dependency',
+      'update',
+      '/in-mem-fs/my-charts/mychart',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml'
+    ],
     // package
     [
       'helm',
       'package',
-      '/tmp/charts/linkerd',
       '--version=3.1.1',
-      '--app-version=v3.1.1alpha'
+      '--app-version=v3.1.1alpha',
+      '/in-mem-fs/my-charts/mychart'
     ],
     // push
     [
       'helm',
       'push',
-      '/tmp/charts/linkerd/linkerd-0.1.2.tgz',
-      'https://charts.bitnami.com/bitnami',
-      '--username=admin',
-      '--password=123456',
+      '/in-mem-fs/my-charts/mychart/myactualchart-3.1.1.tgz',
+      'oci://charts.bitnami.com/bitnami',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml',
+      // '--username=admin',
+      // '--password=123456',
       '--force'
     ]
   ]
+  const expectedRepos: HelmRepoConfig[] = [
+    {
+      name: 'bitnami',
+      url: 'https://charts.bitnami.com/bitnami',
+      username: 'admin',
+      password: '123456'
+    }
+  ]
+  const expectedRegistries: { [key: string]: AuthConfig } = {
+    'https://charts.bitnami.com/bitnami': {
+      Username: 'admin',
+      Password: '123456'
+    }
+  }
   const files = {
-    tmp: {
-      charts: {
-        linkerd: {
-          'linkerd-0.1.2.tgz': 'whatever',
-          'linkkerd-mocks.yaml': 'whatever',
-          'Chart.yaml': 'whatever',
-          'values.yaml': 'whatever'
+    'in-mem-fs': {
+      'my-charts': {
+        mychart: {
+          'myactualchart-3.1.1.tgz': 'whatever',
+          // 'linkkerd-mocks.yaml': 'whatever',
+          'Chart.yaml': 'name: myactualchart\nversion: 0.3.0'
+          // 'values.yaml': 'whatever'
         }
       }
     }
@@ -283,26 +379,44 @@ test('test_valid_push_chart_with_single_dependency', async () => {
   await withMockedExec(conf, files, async mock => {
     await run()
     expect(args(mock.mock.calls)).toEqual(expected)
+
+    const repos = YAML.parse(
+      await fs.promises.readFile('/tmp/repositories.yaml', 'utf8')
+    )
+    expect(repos.repositories).toEqual(expectedRepos)
+
+    const registries = JSON.parse(
+      await fs.promises.readFile('/tmp/registries.json', 'utf8')
+    )
+    expect(registries.auths).toEqual(expectedRegistries)
   })
 })
 
 test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
-  const conf = {
-    [command]: 'upgrade',
-    [release]: 'my-mongodb',
-    [chart]: 'bitnami/mongodb',
-    [helmTimeout]: '1m30s',
-    [atomic]: 'true',
-    [dryRun]: 'true',
-    [chartVersion]: '3.1.1',
-    [repo]: 'https://charts.bitnami.com/bitnami',
-    [repoAlias]: 'bitnami',
-    [values]: '{"test": "123"}',
-    [valueFiles]: '["/tmp/file1.yml", "/tmp/file2.yml"]'
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
+    command: 'upgrade',
+    release: 'my-mongodb',
+    chart: 'bitnami/mongodb',
+    timeout: '1m30s',
+    atomic: true,
+    'dry-run': true,
+    'chart-version': '3.1.1',
+    repo: 'https://charts.bitnami.com/bitnami',
+    'repo-alias': 'bitnami',
+    values: '{"test": "123"}',
+    'value-files': '["/in-mem-fs/file1.yml", "/in-mem-fs/file2.yml"]'
   }
   const expected = [
-    ['helm', 'repo', 'add', 'bitnami', 'https://charts.bitnami.com/bitnami'],
-    ['helm', 'repo', 'update'],
+    // ['helm', 'repo', 'add', 'bitnami', 'https://charts.bitnami.com/bitnami'],
+    // ['helm', 'repo', 'update'],
+    [
+      'helm',
+      'repo',
+      'update',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml'
+    ],
     [
       'helm',
       'upgrade',
@@ -312,17 +426,33 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
       'bitnami/mongodb',
       '--install',
       '--wait',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml',
       '--dry-run',
       '--version=3.1.1',
       '--timeout=1m30s',
       '--atomic',
-      '--values=/tmp/file1.yml',
-      '--values=/tmp/file2.yml',
+      '--values=/in-mem-fs/file1.yml',
+      '--values=/in-mem-fs/file2.yml',
       '--values=values.yml'
     ]
   ]
+  const expectedRepos: HelmRepoConfig[] = [
+    {
+      name: 'bitnami',
+      url: 'https://charts.bitnami.com/bitnami',
+      username: '',
+      password: ''
+    }
+  ]
+  const expectedRegistries: { [key: string]: AuthConfig } = {
+    'https://charts.bitnami.com/bitnami': {
+      Username: '',
+      Password: ''
+    }
+  }
   const files = {
-    tmp: {
+    'in-mem-fs': {
       'file1.yml': 'test: file1',
       'file2.yml': 'test: file2'
     }
@@ -330,36 +460,52 @@ test('test_valid_upgrade_chart_with_options_external_public_repo', async () => {
   await withMockedExec(conf, files, async mock => {
     await run()
     expect(args(mock.mock.calls)).toEqual(expected)
+    const repos = YAML.parse(
+      await fs.promises.readFile('/tmp/repositories.yaml', 'utf8')
+    )
+    expect(repos.repositories).toEqual(expectedRepos)
+
+    const registries = JSON.parse(
+      await fs.promises.readFile('/tmp/registries.json', 'utf8')
+    )
+    expect(registries.auths).toEqual(expectedRegistries)
   })
 })
 
 test('test_valid_upgrade_chart_with_options_external_private_repo', async () => {
-  const conf = {
-    [command]: 'upgrade',
-    [release]: 'my-mongodb',
-    [chart]: 'bitnami/mongodb',
-    [helmTimeout]: '1m30s',
-    [atomic]: 'true',
-    [dryRun]: 'true',
-    [chartVersion]: '3.1.1',
-    [repo]: 'https://charts.bitnami.com/bitnami',
-    [repoAlias]: 'bitnami',
-    [repoUsername]: 'admin',
-    [repoPassword]: '123456',
-    [values]: '{"test": "123"}',
-    [valueFiles]: '["/tmp/file1.yml", "/tmp/file2.yml"]'
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
+    command: 'upgrade',
+    release: 'my-mongodb',
+    chart: 'bitnami/mongodb',
+    timeout: '1m30s',
+    atomic: true,
+    'dry-run': true,
+    'chart-version': '3.1.1',
+    repo: 'https://charts.bitnami.com/bitnami',
+    'repo-alias': 'bitnami',
+    'repo-username': 'admin',
+    'repo-password': '123456',
+    values: '{"test": "123"}',
+    'value-files': '["/in-mem-fs/file1.yml", "/in-mem-fs/file2.yml"]'
   }
   const expected = [
+    // [
+    //   'helm',
+    //   'repo',
+    //   'add',
+    //   'bitnami',
+    //   'https://charts.bitnami.com/bitnami'
+    //   '--username=admin',
+    //   '--password=123456'
+    // ],
     [
       'helm',
       'repo',
-      'add',
-      'bitnami',
-      'https://charts.bitnami.com/bitnami',
-      '--username=admin',
-      '--password=123456'
+      'update',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml'
     ],
-    ['helm', 'repo', 'update'],
     [
       'helm',
       'upgrade',
@@ -369,17 +515,33 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
       'bitnami/mongodb',
       '--install',
       '--wait',
+      '--registry-config=/tmp/registries.json',
+      '--repository-config=/tmp/repositories.yaml',
       '--dry-run',
       '--version=3.1.1',
       '--timeout=1m30s',
       '--atomic',
-      '--values=/tmp/file1.yml',
-      '--values=/tmp/file2.yml',
+      '--values=/in-mem-fs/file1.yml',
+      '--values=/in-mem-fs/file2.yml',
       '--values=values.yml'
     ]
   ]
+  const expectedRepos: HelmRepoConfig[] = [
+    {
+      name: 'bitnami',
+      url: 'https://charts.bitnami.com/bitnami',
+      username: 'admin',
+      password: '123456'
+    }
+  ]
+  const expectedRegistries: { [key: string]: AuthConfig } = {
+    'https://charts.bitnami.com/bitnami': {
+      Username: 'admin',
+      Password: '123456'
+    }
+  }
   const files = {
-    tmp: {
+    'in-mem-fs': {
       'file1.yml': 'test: file1',
       'file2.yml': 'test: file2'
     }
@@ -387,30 +549,42 @@ test('test_valid_upgrade_chart_with_options_external_private_repo', async () => 
   await withMockedExec(conf, files, async mock => {
     await run()
     expect(args(mock.mock.calls)).toEqual(expected)
+
+    const repos = YAML.parse(
+      await fs.promises.readFile('/tmp/repositories.yaml', 'utf8')
+    )
+    expect(repos.repositories).toEqual(expectedRepos)
+
+    const registries = JSON.parse(
+      await fs.promises.readFile('/tmp/registries.json', 'utf8')
+    )
+    expect(registries.auths).toEqual(expectedRegistries)
   })
 })
 
 test('test_invalid_upgrade_chart_missing_repo_password', async () => {
-  const conf = {
-    [command]: 'upgrade',
-    [release]: 'my-linkerd',
-    [chart]: 'bitnami/linkerd',
-    [repo]: 'https://charts.bitnami.com/bitnami',
-    [repoAlias]: 'bitnami',
-    [repoUsername]: 'admin'
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
+    command: 'upgrade',
+    release: 'my-linkerd',
+    chart: 'bitnami/linkerd',
+    repo: 'https://charts.bitnami.com/bitnami',
+    'repo-alias': 'bitnami',
+    'repo-username': 'admin'
     // missing the repo password for user "admin"
   }
   await withMockedExec(conf, {}, async () => {
     await expect(run()).rejects.toThrow(
-      'not supplied: repo-username or repo-password'
+      'supplied repo-username but missing repo-password'
     )
   })
 })
 
 test('test_invalid_upgrade_chart_missing_chart', async () => {
-  const conf = {
-    [command]: 'upgrade',
-    [release]: 'my-linkerd'
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
+    command: 'upgrade',
+    release: 'my-linkerd'
     // missing the chart to upgrade
   }
   await withMockedExec(conf, {}, async () => {
@@ -419,9 +593,10 @@ test('test_invalid_upgrade_chart_missing_chart', async () => {
 })
 
 test('test_invalid_upgrade_chart_missing_release', async () => {
-  const conf = {
-    [command]: 'upgrade',
-    [chart]: 'stable/linkerd'
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
+    command: 'upgrade',
+    chart: 'stable/linkerd'
     // missing the release to upgrade
   }
   await withMockedExec(conf, {}, async () => {
@@ -430,10 +605,11 @@ test('test_invalid_upgrade_chart_missing_release', async () => {
 })
 
 test('test_invalid_upgrade_chart_missing_command', async () => {
-  const conf = {
+  const conf: ActionConfig = {
+    ...DEFAULT_CONF,
     // missing the command to perform
-    [release]: 'my-linkerd',
-    [chart]: 'stable/linkerd'
+    release: 'my-linkerd',
+    chart: 'stable/linkerd'
   }
   await withMockedExec(conf, {}, async () => {
     await expect(run()).rejects.toThrow('not supplied: command')
