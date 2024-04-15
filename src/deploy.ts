@@ -419,12 +419,6 @@ async function helmPush(
     throw new Error(`Could not find packaged chart.Expected ${packaged}`)
   }
 
-  args = [
-    `--registry-config=${configs.registryConfigFile.name}`,
-    `--repository-config=${configs.repositoryConfigFile.name}`
-  ]
-  if (conf.force) args.push('--force')
-
   let repoURL = new URL(conf.repo)
   if (conf.useOCI) {
     repoURL = replaceURLProtocol(repoURL, 'oci:')
@@ -432,7 +426,16 @@ async function helmPush(
 
   // for (const p of packaged) {
   // try {
-  await helmExec(['push', packaged, repoURL.toString(), ...args], options)
+  await helmExec(
+    [
+      'push',
+      packaged,
+      repoURL.toString(),
+      `--registry-config=${configs.registryConfigFile.name}`,
+      `--repository-config=${configs.repositoryConfigFile.name}`
+    ],
+    options
+  )
   // } catch (err) {
   // if (configs.registryConfigFile) {
   //   configs.registryConfigFile.removeCallback()
