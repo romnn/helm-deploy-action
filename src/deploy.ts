@@ -304,14 +304,16 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
   const kubeconfigFile = tmp.fileSync({ postfix: 'kubeconfig.yml' })
 
   try {
-    await helmExec([
-      'repo',
-      'update',
-      '--registry-config',
-      configs.registryConfigFile.name,
-      '--repository-config',
-      configs.repositoryConfigFile.name
-    ])
+    if (is_defined(conf.repo) || (conf.dependencies ?? []).length > 0) {
+      await helmExec([
+        'repo',
+        'update',
+        '--registry-config',
+        configs.registryConfigFile.name,
+        '--repository-config',
+        configs.repositoryConfigFile.name
+      ])
+    }
 
     // prepare values override file
     const valuesFile = path.join(
