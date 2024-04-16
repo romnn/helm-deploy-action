@@ -216,6 +216,9 @@ async function deployHelmChart(conf: HelmDeployConfig): Promise<void> {
   const kubeconfigFile = tmp.fileSync({ postfix: 'kubeconfig.yml' })
 
   try {
+    // print out the helm version for reproductions
+    await helmExec(['version'])
+
     if (is_defined(conf.repo) || (conf.dependencies ?? []).length > 0) {
       await helmExec([
         'repo',
